@@ -36,6 +36,120 @@ io.use((socket, next) => {
 
 const mysql = require("./modulos/mysql");
 
+//PEDIDOS 
+// OBTENER TODOS LOS CLUBES
+app.get("/clubes", async (req, res) => {
+  try {
+    const clubes = await mysql.realizarQuery("SELECT * FROM Club");
+
+    res.status(200).json(clubes);
+  } catch (error) {
+    console.error("Error al obtener los clubes:", error);
+    res.status(500).json({
+      error: "Error al obtener los clubes"
+    });
+  }
+});
+
+//
+// REGISTRO DE USUARIO
+app.post("/registro", async (req, res) => {
+  try {
+    const { nombre_usuario, email, contrasena } = req.body;
+
+    // Verificamos que estén todos los datos
+    if (!nombre_usuario || !email || !contrasena) {
+      return res.status(400).json({
+        error: "Faltan datos"
+      });
+    }
+
+    // Verificamos si ya existe un usuario con ese email
+    const usuarioExistente = await mysql.realizarQuery(
+      `SELECT * FROM Usuario WHERE email = '${email}'`
+    );
+
+    if (usuarioExistente.length > 0) {
+      return res.status(400).json({
+        error: "El email ya está registrado"
+      });
+    }
+
+    // Insertamos el nuevo usuario
+    await mysql.realizarQuery(
+      `INSERT INTO Usuario (nombre_usuario, email, contrasena)
+       VALUES ('${nombre_usuario}', '${email}', '${contrasena}')`
+    );
+
+    res.status(201).json({
+      mensaje: "Usuario registrado correctamente"
+    });
+
+  } catch (error) {
+    console.error("Error al registrar usuario:", error);
+
+    res.status(500).json({
+      error: "Error al registrar usuario"
+    });
+  }
+});
+
+//
+// LOGIN DE USUARIO
+app.post("/login", async (req, res) => {
+  try {
+    const { email, contrasena } = req.body;
+
+    // Verificamos que estén todos los datos
+    if (!email || !contrasena) {
+      return res.status(400).json({
+        error: "Faltan datos"
+      });
+    }
+
+    // Buscamos el usuario por email
+    const usuarios = await mysql.realizarQuery(
+      `SELECT * FROM Usuario WHERE email = '${email}'`
+    );
+
+    // Si no existe
+    if (usuarios.length === 0) {
+      return res.status(401).json({
+        error: "Email o contraseña incorrectos"
+      });
+    }
+
+    const usuario = usuarios[0];
+
+    // Comparamos la contraseña
+    if (usuario.contrasena !== contrasena) {
+      return res.status(401).json({
+        error: "Email o contraseña incorrectos"
+      });
+    }
+
+    // Guardamos el usuario en la sesión
+    req.session.usuario = {
+      id_usuario: usuario.id_usuario,
+      nombre_usuario: usuario.nombre_usuario,
+      email: usuario.email,
+      rol: usuario.rol
+    };
+
+    res.status(200).json({
+      mensaje: "Login correcto",
+      usuario: req.session.usuario
+    });
+
+  } catch (error) {
+    console.error("Error al iniciar sesión:", error);
+
+    res.status(500).json({
+      error: "Error al iniciar sesión"
+    });
+  }
+});
+
 //CONEXION SOCKET
 
 io.on("connection", (socket) => { // Se ejecuta cuando un cliente se conecta
@@ -63,40 +177,6 @@ io.on("connection", (socket) => { // Se ejecuta cuando un cliente se conecta
       user: req.session.usuario,
       room: req.session.room
     });
-  });
-
-
-  // ENVIAR MENSAJE
-  socket.on("sendMessage", async (data) => {
-
-    try {
-      // Obtenemos el chat actual
-      const id_chat = req.session.room;
-
-      // Obtenemos el usuario de la sesión
-      const id_usuario = req.session.usuario.id_usuario;
-
-      // Obtenemos el contenido enviado
-      const contenido = data.message;
-
-      // Guardamos el mensaje en la base de datos
-      await mysql.realizarQuery(
-        `INSERT INTO Mensajes (id_chat, id_usuario, contenido)
-         VALUES (${id_chat}, ${id_usuario}, '${contenido}')`
-      );
-
-      // Mandamos el mensaje a todos los usuarios de esa sala
-      io.to(req.session.room).emit("newMessage", {
-        id_chat: id_chat,
-        id_usuario: id_usuario,
-        contenido: contenido
-      });
-
-    } catch (error) {
-
-      console.error("Error al enviar mensaje:", error);
-
-    }
   });
 
   // DESCONECTARSE
