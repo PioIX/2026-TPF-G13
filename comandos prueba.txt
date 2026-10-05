@@ -1,0 +1,13 @@
+COMANDOS PARA INICIAR LA PRUEBA
+
+. BACKEND (puerto 4000)
+-npm install
+-npm run start
+mata puerto: npx kill-port 4000
+
+.FRONTEND  (puertos 3000 y 3001)
+-npm i
+.. instalar cross-env para varios entornos
+npm install --save-dev cross-env
+-npm run dev:a
+-npm run dev:b
