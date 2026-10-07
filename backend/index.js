@@ -163,6 +163,129 @@ app.get("/usuario", (req, res) => {
   res.status(200).json(req.session.usuario);
 });
 
+app.post("/salas/entrar", async (req, res) => {
+    try {
+        // Verificamos que haya una sesión iniciada
+        if (!req.session.usuario) {
+            return res.status(401).json({
+                error: "Tenés que iniciar sesión"
+            });
+        }
+
+        const { nombre_sala } = req.body;
+
+        // Verificamos que hayan enviado el nombre
+        if (!nombre_sala) {
+            return res.status(400).json({
+                error: "Falta el nombre de la sala"
+            });
+        }
+
+        const idUsuario = req.session.usuario.id_usuario;
+
+        // Buscamos si ya existe una partida con ese nombre
+        const partidas = await mysql.realizarQuery(
+            `SELECT * FROM Partida WHERE nombre_sala = '${nombre_sala}'`
+        );
+
+        // Si no existe, creamos la partida
+        if (partidas.length === 0) {
+
+            const idPartida = await mysql.realizarQueryInsert(
+                `INSERT INTO Partida (nombre_sala, estado)
+                 VALUES ('${nombre_sala}', 'esperando')`
+            );
+
+            // Agregamos al usuario como participante
+            await mysql.realizarQuery(
+                `INSERT INTO ParticipantePartida (id_partida, id_usuario, turno)
+                 VALUES (${idPartida}, ${idUsuario}, TRUE)`
+            );
+
+            return res.status(201).json({
+                mensaje: "Sala creada correctamente",
+                id_partida: idPartida,
+                nombre_sala: nombre_sala
+            });
+        }
+
+        // Si la sala ya existe
+        const partida = partidas[0];
+
+        // Buscamos los jugadores que ya están en la partida
+        const participantes = await mysql.realizarQuery(
+            `SELECT * FROM ParticipantePartida
+             WHERE id_partida = ${partida.id_partida}`
+        );
+
+        // Verificamos si el usuario ya está dentro
+        const usuarioYaEsta = participantes.some(
+            participante => participante.id_usuario === idUsuario
+        );
+
+        if (usuarioYaEsta) {
+            return res.status(200).json({
+                mensaje: "Ya estás dentro de esta sala",
+                id_partida: partida.id_partida,
+                nombre_sala: partida.nombre_sala
+            });
+        }
+
+        // Si ya hay dos jugadores, no puede entrar
+        if (participantes.length >= 2) {
+            return res.status(400).json({
+                error: "La sala está llena"
+            });
+        }
+
+        // Agregamos al segundo jugador
+        await mysql.realizarQuery(
+            `INSERT INTO ParticipantePartida (id_partida, id_usuario)
+             VALUES (${partida.id_partida}, ${idUsuario})`
+        );
+
+        // Cambiamos el estado porque ya hay dos jugadores
+        await mysql.realizarQuery(
+            `UPDATE Partida
+             SET estado = 'jugando'
+             WHERE id_partida = ${partida.id_partida}`
+        );
+
+        res.status(200).json({
+            mensaje: "Te uniste a la sala correctamente",
+            id_partida: partida.id_partida,
+            nombre_sala: partida.nombre_sala
+        });
+
+    } catch (error) {
+        console.error("Error al entrar a la sala:", error);
+
+        res.status(500).json({
+            error: "Error al entrar a la sala"
+        });
+    }
+});
+
+
+// CERRAR SESIÓN
+app.post("/logout", (req, res) => {
+
+    req.session.destroy((error) => {
+
+        if (error) {
+            console.error("Error al cerrar sesión:", error);
+
+            return res.status(500).json({
+                error: "No se pudo cerrar la sesión"
+            });
+        }
+
+        res.status(200).json({
+            mensaje: "Sesión cerrada correctamente"
+        });
+    });
+});
+
 //CONEXION SOCKET
 
 io.on("connection", (socket) => { // Se ejecuta cuando un cliente se conecta
