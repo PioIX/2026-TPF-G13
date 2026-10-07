@@ -36,3 +36,23 @@ exports.realizarQuery = async function (queryString) {
 	}
 	return returnObject[0];
 }
+
+//→ INSERT donde necesitamos obtener el ID generado.
+exports.realizarQueryInsert = async function (queryString) {
+    let connection;
+
+    try {
+        connection = await mySql.createConnection(SQL_CONFIGURATION_DATA);
+
+        const [resultado] = await connection.execute(queryString);
+
+        return resultado.insertId;
+
+    } catch (err) {
+        console.log(err);
+    } finally {
+        if (connection && connection.end) {
+            connection.end();
+        }
+    }
+}
