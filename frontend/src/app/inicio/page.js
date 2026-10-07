@@ -37,6 +37,24 @@ export default function InicioPage() {
         obtenerUsuario();
     }, []);
 
+    async function cerrarSesion() {
+
+        try {
+
+            const respuesta = await fetch("http://localhost:4000/logout", {
+                method: "POST",
+                credentials: "include"
+            });
+
+            if (respuesta.ok) {
+                window.location.href = "/login";
+            }
+
+        } catch (error) {
+            console.error(error);
+        }
+    }
+
     if (cargando) {
         return <p>Cargando...</p>;
     }
@@ -64,6 +82,10 @@ export default function InicioPage() {
 
             <button>
                 Historial
+            </button>
+
+            <button onClick={cerrarSesion}>
+                Cerrar sesión
             </button>
         </main>
     );
