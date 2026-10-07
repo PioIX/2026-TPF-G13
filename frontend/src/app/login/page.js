@@ -11,7 +11,7 @@ export default function LoginPage() {
     const [error, setError] = useState("");
 
     async function iniciarSesion(event) {
-        event.preventDefault();
+        event.preventDefault();  //No hagas el comportamiento automático del formulario; yo me encargo.
 
         setError("");
 
@@ -65,8 +65,8 @@ export default function LoginPage() {
                     onChange={(event) => setContrasena(event.target.value)}
                 />
 
-                <button type="submit">
                     Iniciar sesión
+                <button type="submit">
                 </button>
 
             </form>
