@@ -150,6 +150,19 @@ app.post("/login", async (req, res) => {
   }
 });
 
+app.get("/usuario", (req, res) => {
+
+  // Verificamos si hay un usuario guardado en la sesión
+  if (!req.session.usuario) {
+    return res.status(401).json({
+      error: "No hay una sesión iniciada"
+    });
+  }
+
+  // Devolvemos los datos del usuario
+  res.status(200).json(req.session.usuario);
+});
+
 //CONEXION SOCKET
 
 io.on("connection", (socket) => { // Se ejecuta cuando un cliente se conecta
