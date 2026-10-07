@@ -274,9 +274,9 @@ La información permanecerá almacenada una vez finalizada una partida.
 | Objetivo | Tareas | Responsable | Fecha |
 |---|---|---|---|
 | Configuración inicial | Repositorio y estructura | Jose Groppa + Ezequiel Barbeito | 06/10 |
-| Base de datos | DER, tablas y script SQL | Lucas Mortola | 08/10 |
-| Usuarios | Registro, login y roles | Juan Manuel Pereyra | 13/10 |
-| Frontend | Layout y pantallas principales | Jose Groppa | 15/10 |
+| Base de datos | DER, tablas y script SQL | Juan Manuel Pereyra + Santino Capote | 08/10 |
+| Usuarios | Registro, login y roles | Jose Groppa + Juan Manuel Pereyra | 13/10 |
+| Frontend | Layout y pantallas principales | Lucas Mortola | 15/10 |
 | Backend | Servidor, API y BD | Juan Manuel Pereyra | 15/10 |
 | Tablero | Casilleros y movimiento | Santino Capote + Jose Groppa | 20/10 |
 | Dado | Lanzamiento y procesamiento | Santino Capote | 21/10 |
@@ -342,11 +342,11 @@ La información permanecerá almacenada una vez finalizada una partida.
 
 | Integrante | Área principal | Responsabilidades |
 |---|---|---|
-| **Santino Capote** | Frontend | Pantallas, navegación, tablero y componentes visuales. |
+| **Lucas Mortola** | Frontend | Pantallas, navegación, tablero y componentes visuales. |
 | **Juan Manuel Pereyra** | Backend | API, lógica de negocio, autenticación y usuarios. |
-| **Lucas Mortola** | Base de datos | DER, tablas, relaciones y persistencia. |
+| **Ezequiel Barbeito** | Base de datos | DER, tablas, relaciones y persistencia. |
 | **Jose Groppa** | Lógica del juego | Dado, movimiento, turnos, eventos y puntuación. |
-| **Ezequiel Barbeito** | WebSockets e integración | Comunicación en tiempo real e integración frontend/backend. |
+| **Santino Capote** | WebSockets e integración | Comunicación en tiempo real e integración frontend/backend. |
 
 La distribución de responsabilidades tiene como objetivo organizar el desarrollo y asignar áreas principales de trabajo, pero no implica una separación absoluta de conocimientos.
 
