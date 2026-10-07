@@ -14,7 +14,7 @@ export default function RegistroPage() {
 
     async function registrarse(event) {
 
-        //event.preventDefault();
+        event.preventDefault();
 
         setError("");
 
