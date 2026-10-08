@@ -106,7 +106,7 @@ Al comenzar:
 6. Cuando hay dos jugadores, la partida comienza.
 7. Se asignan los turnos.
 8. El jugador correspondiente lanza el dado.
-9. El sistema determina el movimiento.
+9. El sistema determina el evento.
 10. Se ejecuta el evento del casillero correspondiente.
 11. Se actualiza el estado de la partida.
 12. El cambio se comunica al otro jugador mediante WebSockets.
@@ -123,7 +123,7 @@ El tablero estará compuesto por casilleros con diferentes efectos.
 
 ## Dado
 
-El jugador podrá lanzar un dado de seis caras. El resultado determinará la cantidad de casilleros que deberá avanzar.
+El jugador podrá lanzar un dado. El resultado determinará el evento que atravesará el usuario.
 
 ## Casilleros
 
@@ -135,8 +135,6 @@ Podrán existir:
 - Casilleros con eventos positivos.
 - Casilleros con eventos negativos.
 - Casilleros con eventos aleatorios.
-- Casilleros de avance.
-- Casilleros de retroceso.
 - Casilleros especiales.
 
 El último casillero representará la meta del tablero.
