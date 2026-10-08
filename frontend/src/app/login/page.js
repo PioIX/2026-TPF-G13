@@ -2,8 +2,11 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import Button from "@/components/Button";
+import Input from "@/components/Input";
 
 export default function LoginPage() {
+
     const router = useRouter();
 
     const [email, setEmail] = useState("");
@@ -13,7 +16,7 @@ export default function LoginPage() {
 
     function iniciarSesion(event) {
 
-        event.preventDefault();  // No hagas el comportamiento automático del formulario; yo me encargo.
+        event.preventDefault();
 
         setError("");
 
@@ -56,32 +59,34 @@ export default function LoginPage() {
 
     return (
         <main>
+
             <h1>Iniciar sesión</h1>
 
             <form onSubmit={iniciarSesion}>
 
-                <input
+                <Input
                     type="email"
-                    placeholder="Email"
+                    ph="Email"
                     value={email}
                     onChange={(event) => setEmail(event.target.value)}
                 />
 
-                <input
+                <Input
                     type="password"
-                    placeholder="Contraseña"
+                    ph="Contraseña"
                     value={contrasena}
                     onChange={(event) => setContrasena(event.target.value)}
                 />
 
-                
-                <button type="submit">
-                    Iniciar sesión
-                </button>
+                <Button
+                    type="submit"
+                    text="Iniciar sesión"
+                />
 
             </form>
 
             {error && <p>{error}</p>}
+
         </main>
     );
 }

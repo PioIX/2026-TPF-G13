@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import Button from "@/components/Button";
+import Input from "@/components/Input";
 
 export default function RegistroPage() {
 
@@ -12,9 +14,9 @@ export default function RegistroPage() {
     const [contrasena, setContrasena] = useState("");
     const [error, setError] = useState("");
 
-    function registrarse(event) {
 
-        event.preventDefault();
+    function registrarse(event) {
+        event.preventDefault(); // Evita que el formulario recargue la página automáticamente
 
         setError("");
 
@@ -42,7 +44,6 @@ export default function RegistroPage() {
                     return;
                 }
 
-                // Si el registro salió bien, vamos al login
                 router.push("/login");
 
             })
@@ -54,6 +55,7 @@ export default function RegistroPage() {
             });
     }
 
+
     return (
         <main>
 
@@ -61,30 +63,31 @@ export default function RegistroPage() {
 
             <form onSubmit={registrarse}>
 
-                <input
+                <Input
                     type="text"
-                    placeholder="Nombre de usuario"
+                    ph="Nombre de usuario"
                     value={nombreUsuario}
                     onChange={(event) => setNombreUsuario(event.target.value)}
                 />
 
-                <input
+                <Input
                     type="email"
-                    placeholder="Email"
+                    ph="Email"
                     value={email}
                     onChange={(event) => setEmail(event.target.value)}
                 />
 
-                <input
+                <Input
                     type="password"
-                    placeholder="Contraseña"
+                    ph="Contraseña"
                     value={contrasena}
                     onChange={(event) => setContrasena(event.target.value)}
                 />
 
-                <button type="submit">
-                    Registrarse
-                </button>
+                <Button
+                    type="submit"
+                    text="Registrarse"
+                />
 
             </form>
 

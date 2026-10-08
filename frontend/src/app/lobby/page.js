@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import Button from "@/components/Button";
 
 export default function LobbyPage() {
 
@@ -89,9 +90,10 @@ export default function LobbyPage() {
                 </p>
             ))}
 
-            <button>
-                Listo
-            </button>
+            <Button
+                type="button"
+                text="Listo"
+            />
 
         </main>
     );

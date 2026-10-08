@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import Button from "@/components/Button";
+import Input from "@/components/Input";
 
 export default function InicioPage() {
 
@@ -41,6 +43,7 @@ export default function InicioPage() {
                     setCargando(false);
                 });
         }
+
         obtenerUsuario();
     }, []);
 
@@ -54,7 +57,7 @@ export default function InicioPage() {
             .then((respuesta) => {
 
                 if (respuesta.ok) {
-                    window.location.href = "/login";
+                    router.push("/login");
                 }
 
             })
@@ -66,7 +69,7 @@ export default function InicioPage() {
 
     function entrarASala(event) {
 
-        event.preventDefault();
+        event.preventDefault(); //Evita que el formulario recargue la página automáticamente
 
         setMensajeSala("");
 
@@ -115,6 +118,7 @@ export default function InicioPage() {
 
     return (
         <main>
+
             <h1>El Trayecto</h1>
 
             <h2>Bienvenido, {usuario.nombre_usuario}</h2>
@@ -122,36 +126,45 @@ export default function InicioPage() {
             <p>Email: {usuario.email}</p>
             <p>Rol: {usuario.rol}</p>
 
-            <button>
-                Crear partida
-            </button>
+            <Button
+                type="button"
+                text="Crear partida"
+            />
 
-            <button>
-                Unirse a partida
-            </button>
+            <Button
+                type="button"
+                text="Unirse a partida"
+            />
 
-            <button>
-                Historial
-            </button>
+            <Button
+                type="button"
+                text="Historial"
+            />
 
-            <button onClick={cerrarSesion}>
-                Cerrar sesión
-            </button>
+            <Button
+                type="button"
+                text="Cerrar sesión"
+                onClick={cerrarSesion}
+            />
 
             <form onSubmit={entrarASala}>
-                <input
+
+                <Input
                     type="text"
-                    placeholder="Nombre de la sala"
+                    ph="Nombre de la sala"
                     value={nombreSala}
                     onChange={(event) => setNombreSala(event.target.value)}
                 />
 
-                <button type="submit">
-                    Entrar a sala
-                </button>
+                <Button
+                    type="submit"
+                    text="Entrar a sala"
+                />
+
             </form>
 
             {mensajeSala && <p>{mensajeSala}</p>}
+
         </main>
     );
 }
