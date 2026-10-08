@@ -143,3 +143,6 @@ CREATE TABLE EventoPartida (
         FOREIGN KEY (id_casillero)
         REFERENCES Casillero(id_casillero)
 );
+
+ALTER TABLE ParticipantePartida
+ADD COLUMN listo BOOLEAN NOT NULL DEFAULT FALSE;

@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import Button from "@/components/Button";
+import Input from "@/components/Input";
 
 export default function RegistroPage() {
 
@@ -12,44 +14,47 @@ export default function RegistroPage() {
     const [contrasena, setContrasena] = useState("");
     const [error, setError] = useState("");
 
-    async function registrarse(event) {
 
-        event.preventDefault();
+    function registrarse(event) {
+        event.preventDefault(); // Evita que el formulario recargue la página automáticamente
 
         setError("");
 
-        try {
+        fetch("http://localhost:4000/registro", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            credentials: "include",
+            body: JSON.stringify({
+                nombre_usuario: nombreUsuario,
+                email: email,
+                contrasena: contrasena
+            })
+        })
+            .then((respuesta) => {
 
-            const respuesta = await fetch("http://localhost:4000/registro", {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json"
-                },
-                credentials: "include",
-                body: JSON.stringify({
-                    nombre_usuario: nombreUsuario,
-                    email: email,
-                    contrasena: contrasena
-                })
+                return respuesta.json();
+
+            })
+            .then((datos) => {
+
+                if (datos.error) {
+                    setError(datos.error);
+                    return;
+                }
+
+                router.push("/login");
+
+            })
+            .catch((error) => {
+
+                console.error(error);
+                setError("No se pudo conectar con el servidor");
+
             });
-
-            const datos = await respuesta.json();
-
-            if (!respuesta.ok) {
-                setError(datos.error);
-                return;
-            }
-
-            // Si el registro salió bien, vamos al login
-            router.push("/login");
-
-        } catch (error) {
-
-            console.error(error);
-            setError("No se pudo conectar con el servidor");
-
-        }
     }
+
 
     return (
         <main>
@@ -58,30 +63,31 @@ export default function RegistroPage() {
 
             <form onSubmit={registrarse}>
 
-                <input
+                <Input
                     type="text"
-                    placeholder="Nombre de usuario"
+                    ph="Nombre de usuario"
                     value={nombreUsuario}
                     onChange={(event) => setNombreUsuario(event.target.value)}
                 />
 
-                <input
+                <Input
                     type="email"
-                    placeholder="Email"
+                    ph="Email"
                     value={email}
                     onChange={(event) => setEmail(event.target.value)}
                 />
 
-                <input
+                <Input
                     type="password"
-                    placeholder="Contraseña"
+                    ph="Contraseña"
                     value={contrasena}
                     onChange={(event) => setContrasena(event.target.value)}
                 />
 
-                <button type="submit">
-                    Registrarse
-                </button>
+                <Button
+                    type="submit"
+                    text="Registrarse"
+                />
 
             </form>
 
