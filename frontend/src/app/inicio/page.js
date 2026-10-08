@@ -1,59 +1,109 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 
 export default function InicioPage() {
 
     const [usuario, setUsuario] = useState(null);
     const [cargando, setCargando] = useState(true);
     const [error, setError] = useState("");
+    const [nombreSala, setNombreSala] = useState("");
+    const [mensajeSala, setMensajeSala] = useState("");
+
+    const router = useRouter();
 
     useEffect(() => {
-        async function obtenerUsuario() {
+        function obtenerUsuario() {
 
-            try {
-                const respuesta = await fetch("http://localhost:4000/usuario", {
-                    method: "GET",
-                    credentials: "include"
+            fetch("http://localhost:4000/usuario", {
+                method: "GET",
+                credentials: "include"
+            })
+                .then((respuesta) => {
+
+                    if (!respuesta.ok) {
+                        return respuesta.json().then((datos) => {
+                            throw new Error(datos.error);
+                        });
+                    }
+
+                    return respuesta.json();
+                })
+                .then((datos) => {
+                    setUsuario(datos);
+                })
+                .catch((error) => {
+                    console.error(error);
+                    setError(error.message);
+                })
+                .finally(() => {
+                    setCargando(false);
                 });
-
-                const datos = await respuesta.json();
-
-                if (!respuesta.ok) {
-                    setError(datos.error);
-                    return;
-                }
-
-                setUsuario(datos);
-
-            } catch (error) {
-                console.error(error);
-                setError("No se pudo conectar con el servidor");
-            } finally {             //Haya salido bien o haya ocurrido un error, hacé esto igualmente
-                setCargando(false);
-            }
         }
-
         obtenerUsuario();
     }, []);
 
-    async function cerrarSesion() {
 
-        try {
+    function cerrarSesion() {
 
-            const respuesta = await fetch("http://localhost:4000/logout", {
-                method: "POST",
-                credentials: "include"
+        fetch("http://localhost:4000/logout", {
+            method: "POST",
+            credentials: "include"
+        })
+            .then((respuesta) => {
+
+                if (respuesta.ok) {
+                    window.location.href = "/login";
+                }
+
+            })
+            .catch((error) => {
+                console.error(error);
             });
-
-            if (respuesta.ok) {
-                window.location.href = "/login";
-            }
-
-        } catch (error) {
-            console.error(error);
-        }
     }
+
+
+    function entrarASala(event) {
+
+        event.preventDefault();
+
+        setMensajeSala("");
+
+        fetch("http://localhost:4000/salas/entrar", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            credentials: "include",
+            body: JSON.stringify({
+                nombre_sala: nombreSala
+            })
+        })
+            .then((respuesta) => respuesta.json())
+            .then((datos) => {
+
+                if (!datos) {
+                    setMensajeSala("No se pudo obtener una respuesta del servidor");
+                    return;
+                }
+
+                if (datos.error) {
+                    setMensajeSala(datos.error);
+                    return;
+                }
+
+                console.log("Partida:", datos.id_partida);
+
+                router.push(`/lobby?id_partida=${datos.id_partida}`);
+
+            })
+            .catch((error) => {
+                console.error(error);
+                setMensajeSala("No se pudo conectar con el servidor");
+            });
+    }
+
 
     if (cargando) {
         return <p>Cargando...</p>;
@@ -87,6 +137,21 @@ export default function InicioPage() {
             <button onClick={cerrarSesion}>
                 Cerrar sesión
             </button>
+
+            <form onSubmit={entrarASala}>
+                <input
+                    type="text"
+                    placeholder="Nombre de la sala"
+                    value={nombreSala}
+                    onChange={(event) => setNombreSala(event.target.value)}
+                />
+
+                <button type="submit">
+                    Entrar a sala
+                </button>
+            </form>
+
+            {mensajeSala && <p>{mensajeSala}</p>}
         </main>
     );
 }

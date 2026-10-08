@@ -12,43 +12,46 @@ export default function RegistroPage() {
     const [contrasena, setContrasena] = useState("");
     const [error, setError] = useState("");
 
-    async function registrarse(event) {
+    function registrarse(event) {
 
         event.preventDefault();
 
         setError("");
 
-        try {
+        fetch("http://localhost:4000/registro", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            credentials: "include",
+            body: JSON.stringify({
+                nombre_usuario: nombreUsuario,
+                email: email,
+                contrasena: contrasena
+            })
+        })
+            .then((respuesta) => {
 
-            const respuesta = await fetch("http://localhost:4000/registro", {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json"
-                },
-                credentials: "include",
-                body: JSON.stringify({
-                    nombre_usuario: nombreUsuario,
-                    email: email,
-                    contrasena: contrasena
-                })
+                return respuesta.json();
+
+            })
+            .then((datos) => {
+
+                if (datos.error) {
+                    setError(datos.error);
+                    return;
+                }
+
+                // Si el registro salió bien, vamos al login
+                router.push("/login");
+
+            })
+            .catch((error) => {
+
+                console.error(error);
+                setError("No se pudo conectar con el servidor");
+
             });
-
-            const datos = await respuesta.json();
-
-            if (!respuesta.ok) {
-                setError(datos.error);
-                return;
-            }
-
-            // Si el registro salió bien, vamos al login
-            router.push("/login");
-
-        } catch (error) {
-
-            console.error(error);
-            setError("No se pudo conectar con el servidor");
-
-        }
     }
 
     return (
