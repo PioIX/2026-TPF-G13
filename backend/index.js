@@ -326,6 +326,7 @@ app.get("/partidas/:idPartida/jugadores", async (req, res) => {
 });
 
 
+
 app.post("/partidas/:idPartida/listo", async (req, res) => {
     try {
         if (!req.session.usuario) {
@@ -335,19 +336,25 @@ app.post("/partidas/:idPartida/listo", async (req, res) => {
         }
 
         const idPartida = Number(req.params.idPartida);
+        const idUsuario = Number(req.session.usuario.id_usuario);
 
-        if (!Number.isInteger(idPartida) || idPartida <= 0) {
+        if (
+            !Number.isInteger(idPartida) ||
+            idPartida <= 0 ||
+            !Number.isInteger(idUsuario) ||
+            idUsuario <= 0
+        ) {
             return res.status(400).json({
-                error: "ID de partida inválido"
+                error: "Datos inválidos"
             });
         }
 
-        // Buscamos al participante que corresponde al usuario logueado
+        // Comprobamos que el usuario participe en esta partida
         const participantes = await mysql.realizarQuery(
             `SELECT id_participante
              FROM ParticipantePartida
              WHERE id_partida = ${idPartida}
-             AND id_usuario = ${Number(req.session.usuario.id_usuario)}`
+             AND id_usuario = ${idUsuario}`
         );
 
         if (!participantes || participantes.length === 0) {
@@ -361,10 +368,10 @@ app.post("/partidas/:idPartida/listo", async (req, res) => {
             `UPDATE ParticipantePartida
              SET listo = 1
              WHERE id_partida = ${idPartida}
-             AND id_usuario = ${Number(req.session.usuario.id_usuario)}`
+             AND id_usuario = ${idUsuario}`
         );
 
-        // Consultamos nuevamente los jugadores
+        // Obtenemos el estado actual de los jugadores
         const jugadores = await mysql.realizarQuery(
             `SELECT
                 ParticipantePartida.id_participante,
@@ -377,15 +384,36 @@ app.post("/partidas/:idPartida/listo", async (req, res) => {
              WHERE ParticipantePartida.id_partida = ${idPartida}`
         );
 
-        // Actualizamos el lobby de todos los jugadores
-        io.to(`partida_${idPartida}`).emit(
-            "jugadoresActualizados",
-            jugadores
-        );
+        const sala = `partida_${idPartida}`;
+
+        // Actualizamos ambos lobbies en tiempo real
+        io.to(sala).emit("jugadoresActualizados", jugadores);
+
+        // Solo comienza si hay exactamente dos jugadores
+        // y ambos están listos
+        const ambosListos =
+            jugadores.length === 2 &&
+            jugadores.every((jugador) => Boolean(jugador.listo)); //usamos every para verificar que todos los jugadores estén listos
+
+        if (ambosListos) {
+            await mysql.realizarQuery(
+                `UPDATE Partida
+                 SET estado = 'jugando'
+                 WHERE id_partida = ${idPartida}
+                 AND estado <> 'jugando'`
+            );
+
+            // Avisamos a los dos clientes que deben comenzar
+            io.to(sala).emit("partidaIniciada", {
+                idPartida: idPartida
+            });
+        }
 
         return res.status(200).json({
-            mensaje: "¡Ya estás listo!",
-            jugadores: jugadores
+            mensaje: ambosListos
+                ? "¡Los dos están listos! Comienza la partida."
+                : "¡Ya estás listo! Esperando al otro jugador.",
+            ambosListos: ambosListos
         });
 
     } catch (error) {
@@ -396,6 +424,7 @@ app.post("/partidas/:idPartida/listo", async (req, res) => {
         });
     }
 });
+
 
 
 //CONEXION SOCKET
