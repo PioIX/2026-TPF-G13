@@ -3,10 +3,12 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { io } from "socket.io-client";
+import { useRouter } from "next/navigation";
 import Button from "@/components/Button";
 
 export default function LobbyPage() {
     const searchParams = useSearchParams();
+    const router = useRouter();
     const idPartida = searchParams.get("id_partida");
 
     const [jugadores, setJugadores] = useState([]);
@@ -76,6 +78,12 @@ export default function LobbyPage() {
             setError("");
         });
 
+        socket.on("partidaIniciada", (datos) => {
+            console.log("¡Comienza la partida!", datos.idPartida);
+
+            router.push(`/partida?id_partida=${datos.idPartida}`);
+        });
+
         socket.on("connect_error", (error) => {
             console.error("Error de conexión con Socket.IO:", error);
             setConectado(false);
@@ -84,7 +92,7 @@ export default function LobbyPage() {
         return () => {
             socket.disconnect();
         };
-    }, [idPartida]);
+    }, [idPartida, router]);
 
 
     function marcarComoListo() {
