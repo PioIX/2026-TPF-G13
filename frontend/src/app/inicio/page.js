@@ -116,39 +116,16 @@ export default function InicioPage() {
         return <p>{error}</p>;
     }
 
+
     return (
         <main>
-
             <h1>El Trayecto</h1>
 
-            <h2>Bienvenido, {usuario.nombre_usuario}</h2>
+            <h2>¡Bienvenido, {usuario.nombre_usuario}!</h2>
 
-            <p>Email: {usuario.email}</p>
             <p>Rol: {usuario.rol}</p>
 
-            <Button
-                type="button"
-                text="Crear partida"
-            />
-
-            <Button
-                type="button"
-                text="Unirse a partida"
-            />
-
-            <Button
-                type="button"
-                text="Historial"
-            />
-
-            <Button
-                type="button"
-                text="Cerrar sesión"
-                onClick={cerrarSesion}
-            />
-
             <form onSubmit={entrarASala}>
-
                 <Input
                     type="text"
                     ph="Nombre de la sala"
@@ -158,13 +135,24 @@ export default function InicioPage() {
 
                 <Button
                     type="submit"
-                    text="Entrar a sala"
+                    text="Crear / Entrar a sala"
                 />
-
             </form>
 
             {mensajeSala && <p>{mensajeSala}</p>}
 
+            <Button
+                type="button"
+                text="Historial"
+                onClick={() => router.push("/historial")}
+            />
+
+            <Button
+                type="button"
+                text="Cerrar sesión"
+                onClick={cerrarSesion}
+            />
         </main>
     );
+
 }
