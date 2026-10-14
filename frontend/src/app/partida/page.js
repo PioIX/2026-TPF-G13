@@ -13,28 +13,29 @@ export default function PartidaPage() {
     // Posiciones iniciales de ejemplo.
     // Después las cargaremos desde el backend.
     const [miPosicion, setMiPosicion] = useState(1);
-    const [posicionRival, setPosicionRival] = useState(1);
+    const [posicionRival, setPosicionRival] = useState(12);
 
     const [resultadoDado, setResultadoDado] = useState(null);
     const [mensaje, setMensaje] = useState(
         "Esperando el inicio de la partida..."
     );
 
+
     function lanzarDado() {
-        // Movimiento provisional para probar la interfaz.
-        // El resultado definitivo lo calculará el backend.
         const resultado = Math.floor(Math.random() * 6) + 1;
 
         setResultadoDado(resultado);
 
         setMiPosicion((posicionActual) =>
-            Math.min(posicionActual + resultado, 20)
+            Math.min(posicionActual + 1, 20)
         );
 
         setMensaje(
-            `Sacaste un ${resultado}. ¡Avanzaste por el tablero!`
+            `Sacaste un ${resultado}. Avanzaste una temporada. ` +
+            "El evento todavía no está implementado."
         );
     }
+
 
     if (!idPartida) {
         return <p>No se encontró el identificador de la partida.</p>;
@@ -60,7 +61,10 @@ export default function PartidaPage() {
                 <p>Dinero: --</p>
             </section>
 
-            <Tablero posicionActual={miPosicion} />
+            <Tablero
+                posicionJugador1={miPosicion}
+                posicionJugador2={posicionRival}
+            />
 
             <section>
                 <h2>Tu turno</h2>

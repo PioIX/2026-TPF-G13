@@ -24,7 +24,8 @@ export default function Tablero(props) {
                 key={casillero.numero}
                 numero={casillero.numero}
                 temporada={casillero.temporada}
-                activo={props.posicionActual === casillero.numero}
+                posicionJugador1={props.posicionJugador1}
+                posicionJugador2={props.posicionJugador2}
             />
         );
     }

@@ -266,6 +266,80 @@ app.post("/salas/entrar", async (req, res) => {
   }
 });
 
+app.get("/partidas/:idPartida/estado", (req, res) => {
+
+    if (!req.session.usuario) {
+        return res.status(401).json({
+            error: "Tenés que iniciar sesión"
+        });
+    }
+
+    const idPartida = Number(req.params.idPartida);
+
+    // Validamos que el ID sea un entero positivo.
+    if (!Number.isInteger(idPartida) || idPartida <= 0) {
+        return res.status(400).json({
+            error: "El ID de la partida no es válido"
+        });
+    }
+
+    mysql.realizarQuery(
+        `SELECT
+            p.id_partida,
+            p.estado,
+            p.fecha_inicio,
+            p.fecha_fin,
+            COUNT(pp.id_participante) AS cantidad_participantes,
+            MAX(CASE WHEN pp.turno = 1 THEN pp.id_usuario END) AS id_usuario_turno
+         FROM Partida p
+         LEFT JOIN ParticipantePartida pp
+            ON p.id_partida = pp.id_partida
+         WHERE p.id_partida = ${idPartida}
+         GROUP BY
+            p.id_partida,
+            p.estado,
+            p.fecha_inicio,
+            p.fecha_fin`
+    )
+        .then((resultado) => {
+
+            if (!resultado || resultado.length === 0) {
+                return res.status(404).json({
+                    error: "La partida no existe"
+                });
+            }
+
+            const partida = resultado[0];
+            const cantidad = Number(partida.cantidad_participantes);
+
+            if (cantidad !== 2) {
+                return res.status(409).json({
+                    error: "La partida debe tener exactamente dos participantes",
+                    id_partida: partida.id_partida,
+                    estado: partida.estado,
+                    cantidad_participantes: cantidad
+                });
+            }
+
+            res.status(200).json({
+                id_partida: partida.id_partida,
+                estado: partida.estado,
+                fecha_inicio: partida.fecha_inicio,
+                fecha_fin: partida.fecha_fin,
+                cantidad_participantes: cantidad,
+                id_usuario_turno: partida.id_usuario_turno
+            });
+
+        })
+        .catch((error) => {
+            console.error("Error al consultar el estado de la partida:", error);
+
+            res.status(500).json({
+                error: "Error al consultar el estado de la partida"
+            });
+        });
+
+});
 
 // CERRAR SESIÓN
 app.post("/logout", (req, res) => {
@@ -471,7 +545,3 @@ io.on("connection", (socket) => {
     console.log("Usuario desconectado");
   });
 });
-
-
-
-
