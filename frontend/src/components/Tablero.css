@@ -1,0 +1,49 @@
+
+.tablero {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    width: 100%;
+    overflow-x: auto;
+    padding: 12px;
+    box-sizing: border-box;
+}
+
+.fila-tablero {
+    display: grid;
+    grid-template-columns: repeat(10, minmax(65px, 1fr));
+    gap: 8px;
+    min-width: 730px;
+}
+
+.casillero {
+    min-height: 85px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+
+    background: #17142a;
+    border: 2px solid #6946b8;
+    border-radius: 10px;
+    color: white;
+
+    transition: background 0.2s, border-color 0.2s;
+}
+
+.numero-casillero {
+    font-size: 20px;
+    font-weight: bold;
+}
+
+.temporada-casillero {
+    font-size: 14px;
+    color: #c9b8ff;
+}
+
+.casillero.activo {
+    background: #39205d;
+    border-color: #ff4fd8;
+    box-shadow: 0 0 12px #ff4fd866;
+}

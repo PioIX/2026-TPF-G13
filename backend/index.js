@@ -325,6 +325,108 @@ app.get("/partidas/:idPartida/jugadores", async (req, res) => {
 
 });
 
+
+
+app.post("/partidas/:idPartida/listo", async (req, res) => {
+    try {
+        if (!req.session.usuario) {
+            return res.status(401).json({
+                error: "Tenés que iniciar sesión"
+            });
+        }
+
+        const idPartida = Number(req.params.idPartida);
+        const idUsuario = Number(req.session.usuario.id_usuario);
+
+        if (
+            !Number.isInteger(idPartida) ||
+            idPartida <= 0 ||
+            !Number.isInteger(idUsuario) ||
+            idUsuario <= 0
+        ) {
+            return res.status(400).json({
+                error: "Datos inválidos"
+            });
+        }
+
+        // Comprobamos que el usuario participe en esta partida
+        const participantes = await mysql.realizarQuery(
+            `SELECT id_participante
+             FROM ParticipantePartida
+             WHERE id_partida = ${idPartida}
+             AND id_usuario = ${idUsuario}`
+        );
+
+        if (!participantes || participantes.length === 0) {
+            return res.status(403).json({
+                error: "No participás de esta partida"
+            });
+        }
+
+        // Marcamos al jugador como listo
+        await mysql.realizarQuery(
+            `UPDATE ParticipantePartida
+             SET listo = 1
+             WHERE id_partida = ${idPartida}
+             AND id_usuario = ${idUsuario}`
+        );
+
+        // Obtenemos el estado actual de los jugadores
+        const jugadores = await mysql.realizarQuery(
+            `SELECT
+                ParticipantePartida.id_participante,
+                ParticipantePartida.id_usuario,
+                ParticipantePartida.listo,
+                Usuario.nombre_usuario
+             FROM ParticipantePartida
+             INNER JOIN Usuario
+                ON ParticipantePartida.id_usuario = Usuario.id_usuario
+             WHERE ParticipantePartida.id_partida = ${idPartida}`
+        );
+
+        const sala = `partida_${idPartida}`;
+
+        // Actualizamos ambos lobbies en tiempo real
+        io.to(sala).emit("jugadoresActualizados", jugadores);
+
+        // Solo comienza si hay exactamente dos jugadores
+        // y ambos están listos
+        const ambosListos =
+            jugadores.length === 2 &&
+            jugadores.every((jugador) => Boolean(jugador.listo)); //usamos every para verificar que todos los jugadores estén listos
+
+        if (ambosListos) {
+            await mysql.realizarQuery(
+                `UPDATE Partida
+                 SET estado = 'jugando'
+                 WHERE id_partida = ${idPartida}
+                 AND estado <> 'jugando'`
+            );
+
+            // Avisamos a los dos clientes que deben comenzar
+            io.to(sala).emit("partidaIniciada", {
+                idPartida: idPartida
+            });
+        }
+
+        return res.status(200).json({
+            mensaje: ambosListos
+                ? "¡Los dos están listos! Comienza la partida."
+                : "¡Ya estás listo! Esperando al otro jugador.",
+            ambosListos: ambosListos
+        });
+
+    } catch (error) {
+        console.error("Error al marcar jugador como listo:", error);
+
+        return res.status(500).json({
+            error: "No se pudo actualizar el estado"
+        });
+    }
+});
+
+
+
 //CONEXION SOCKET
 
 io.on("connection", (socket) => {
@@ -333,11 +435,11 @@ io.on("connection", (socket) => {
     try {
       const idPartida = Number(data.idPartida);
 
-      if (!Number.isInteger(idPartida)) {
+      if (!Number.isInteger(idPartida)) {   //aca verifico que el idPartida sea un numero entero
         return;
       }
 
-      const room = `partida_${idPartida}`;
+      const room = `partida_${idPartida}`;    // Creamos un nombre de sala único para cada partida
 
       // Metemos al socket en la sala de Socket.IO
       socket.join(room);
@@ -357,7 +459,7 @@ io.on("connection", (socket) => {
                  WHERE ParticipantePartida.id_partida = ${idPartida}`
       );
 
-      // Avisamos a todos los jugadores de la sala
+      // Avisamos a todos los jugadores de la sala con .to
       io.to(room).emit("jugadoresActualizados", jugadores);
 
     } catch (error) {
