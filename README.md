@@ -17,7 +17,7 @@
 
 *El Trayecto* será una aplicación web multijugador 1v1 basada en la dinámica de los juegos de tablero. Dos jugadores competirán para construir la mejor carrera futbolística mediante lanzamientos de dado, movimientos por un tablero y eventos aleatorios.
 
-Cada jugador comenzará en una posición inicial y avanzará según el resultado del dado. Dependiendo del casillero alcanzado, podrán ocurrir distintos eventos que afectarán positiva o negativamente su carrera.
+Cada jugador comenzará en una posición inicial y avanzará un casillero/temporada. Dependiendo del dado, podrán ocurrir distintos eventos que afectarán positiva o negativamente su carrera.
 
 Los eventos estarán relacionados con situaciones del mundo del fútbol, desde situaciones cotidianas hasta situaciones humorísticas, bizarras o inesperadas.
 
