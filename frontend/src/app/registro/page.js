@@ -1,12 +1,13 @@
+
 "use client";
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Button from "@/components/Button";
 import Input from "@/components/Input";
+import "./registro.css";
 
 export default function RegistroPage() {
-
     const router = useRouter();
 
     const [nombreUsuario, setNombreUsuario] = useState("");
@@ -14,9 +15,8 @@ export default function RegistroPage() {
     const [contrasena, setContrasena] = useState("");
     const [error, setError] = useState("");
 
-
     function registrarse(event) {
-        event.preventDefault(); // Evita que el formulario recargue la página automáticamente
+        event.preventDefault();
 
         setError("");
 
@@ -33,66 +33,122 @@ export default function RegistroPage() {
             })
         })
             .then((respuesta) => {
-
                 return respuesta.json();
-
             })
             .then((datos) => {
-
                 if (datos.error) {
                     setError(datos.error);
                     return;
                 }
 
-                router.push("/login");
-
+                router.push("/acceso");
             })
             .catch((error) => {
-
                 console.error(error);
                 setError("No se pudo conectar con el servidor");
-
             });
     }
 
-
     return (
-        <main>
+        <main className="registro">
+            <section className="registro-panel">
 
-            <h1>Crear cuenta</h1>
+                <p className="registro-etiqueta">
+                    EL TRAYECTO · TU CARRERA
+                </p>
 
-            <form onSubmit={registrarse}>
+                <h1>
+                    Crear <span>cuenta</span>
+                </h1>
 
-                <Input
-                    type="text"
-                    ph="Nombre de usuario"
-                    value={nombreUsuario}
-                    onChange={(event) => setNombreUsuario(event.target.value)}
-                />
+                <p className="registro-descripcion">
+                    Toda gran carrera empieza con un primer paso.
+                    <br />
+                    Creá tu cuenta y empezá a escribir tu historia.
+                </p>
 
-                <Input
-                    type="email"
-                    ph="Email"
-                    value={email}
-                    onChange={(event) => setEmail(event.target.value)}
-                />
+                <div className="registro-separador">
+                    <span />
+                    <span className="registro-estrella">✦</span>
+                    <span />
+                </div>
 
-                <Input
-                    type="password"
-                    ph="Contraseña"
-                    value={contrasena}
-                    onChange={(event) => setContrasena(event.target.value)}
-                />
+                <form
+                    className="registro-formulario"
+                    onSubmit={registrarse}
+                >
+                    <div className="registro-campo">
+                        <label htmlFor="registro-usuario">
+                            NOMBRE DE USUARIO
+                        </label>
 
-                <Button
-                    type="submit"
-                    text="Registrarse"
-                />
+                        <Input
+                            type="text"
+                            ph="Elegí tu nombre de jugador"
+                            value={nombreUsuario}
+                            onChange={(event) =>
+                                setNombreUsuario(event.target.value)
+                            }
+                        />
+                    </div>
 
-            </form>
+                    <div className="registro-campo">
+                        <label htmlFor="registro-email">
+                            EMAIL
+                        </label>
 
-            {error && <p>{error}</p>}
+                        <Input
+                            type="email"
+                            ph="Ingresá tu email"
+                            value={email}
+                            onChange={(event) =>
+                                setEmail(event.target.value)
+                            }
+                        />
+                    </div>
 
+                    <div className="registro-campo">
+                        <label htmlFor="registro-contrasena">
+                            CONTRASEÑA
+                        </label>
+
+                        <Input
+                            type="password"
+                            ph="Creá una contraseña"
+                            value={contrasena}
+                            onChange={(event) =>
+                                setContrasena(event.target.value)
+                            }
+                        />
+                    </div>
+
+                    {error && (
+                        <p className="registro-error" role="alert">
+                            {error}
+                        </p>
+                    )}
+
+                    <div className="registro-boton">
+                        <Button
+                            type="submit"
+                            text="CREAR CUENTA"
+                        />
+                    </div>
+                </form>
+
+                <button
+                    type="button"
+                    className="registro-volver"
+                    onClick={() => router.push("/acceso")}
+                >
+                    ← Volver a acceso
+                </button>
+
+                <p className="registro-pie">
+                    TU HISTORIA. TU CARRERA. TU LEGADO.
+                </p>
+
+            </section>
         </main>
     );
 }

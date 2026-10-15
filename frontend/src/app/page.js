@@ -1,15 +1,48 @@
+
 "use client";
-import Popup from "reactjs-popup";
-import "reactjs-popup/dist/index.css";
-import { useEffect, useState } from "react";
-import { useSocket } from "@/hooks/useSocket";
+
 import { useRouter } from "next/navigation";
+import "./globals.css";
 
+export default function HomePage() {
+    const router = useRouter();
+    return (
+        <main className="portada">
+            <div className="portada-overlay" />
 
-export default function Page() {
-    return(
-        <>
-            <h1>proyecto base</h1>
-        </>
-    )
+            <section className="portada-contenido">
+                <p className="portada-etiqueta">
+                    EL COMIENZO DE UNA CARRERA
+                </p>
+
+                <h1 className="portada-titulo">
+                    EL <span>TRAYECTO</span>
+                </h1>
+
+                <div className="portada-separador">
+                    <span />
+                    <span className="separador-balon">✦</span>
+                    <span />
+                </div>
+
+                <p className="portada-subtitulo">
+                    Dos futbolistas.
+                    <br />
+                    <strong>Una leyenda.</strong>
+                </p>
+
+                <button
+                    className="boton-empezar"
+                    onClick={() => router.push("/acceso")}
+                >
+                    EMPEZAR
+                    <span className="flecha-empezar">→</span>
+                </button>
+
+                <p className="portada-pie">
+                    TU HISTORIA. TU CARRERA. TU LEGADO.
+                </p>
+            </section>
+        </main>
+    );
 }

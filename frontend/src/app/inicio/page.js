@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import "./inicio.css";
 import Button from "@/components/Button";
 import Input from "@/components/Input";
 
@@ -109,50 +110,80 @@ export default function InicioPage() {
 
 
     if (cargando) {
-        return <p>Cargando...</p>;
+        return (
+            <main className="inicio-page">
+                <p className="inicio-estado">Cargando...</p>
+            </main>
+        );
     }
 
     if (error) {
-        return <p>{error}</p>;
+        return (
+            <main className="inicio-page">
+                <p className="inicio-error">{error}</p>
+            </main>
+        );
     }
 
 
     return (
-        <main>
-            <h1>El Trayecto</h1>
+        <main className="inicio-page">
+            <section className="inicio-panel">
+                <h1 className="inicio-titulo">EL TRAYECTO</h1>
 
-            <h2>¡Bienvenido, {usuario.nombre_usuario}!</h2>
+                <p className="inicio-subtitulo">
+                    DOS FUTBOLISTAS. UNA LEYENDA.
+                </p>
 
-            <p>Rol: {usuario.rol}</p>
+                <hr className="inicio-separador" />
 
-            <form onSubmit={entrarASala}>
-                <Input
-                    type="text"
-                    ph="Nombre de la sala"
-                    value={nombreSala}
-                    onChange={(event) => setNombreSala(event.target.value)}
-                />
+                <h2 className="inicio-bienvenida">
+                    ¡Bienvenido, {usuario.nombre_usuario}!
+                </h2>
 
-                <Button
-                    type="submit"
-                    text="Crear / Entrar a sala"
-                />
-            </form>
+                <p className="inicio-rol">
+                    Rol · {usuario.rol}
+                </p>
 
-            {mensajeSala && <p>{mensajeSala}</p>}
+                <form
+                    className="inicio-formulario"
+                    onSubmit={entrarASala}
+                >
+                    <Input
+                        type="text"
+                        ph="Ingresá el nombre de la sala"
+                        value={nombreSala}
+                        onChange={(event) =>
+                            setNombreSala(event.target.value)
+                        }
+                    />
 
-            <Button
-                type="button"
-                text="Historial"
-                onClick={() => router.push("/historial")}
-            />
+                    <Button
+                        type="submit"
+                        text="Crear / Entrar a sala"
+                    />
+                </form>
 
-            <Button
-                type="button"
-                text="Cerrar sesión"
-                onClick={cerrarSesion}
-            />
+                {mensajeSala && (
+                    <p className="inicio-mensaje">
+                        {mensajeSala}
+                    </p>
+                )}
+
+                <div className="inicio-acciones">
+                    <Button
+                        type="button"
+                        text="Historial"
+                        onClick={() => router.push("/historial")}
+                    />
+
+                    <Button
+                        type="button"
+                        text="Cerrar sesión"
+                        onClick={cerrarSesion}
+                    />
+                </div>
+            </section>
         </main>
-    );
-
-}
+    )
+};

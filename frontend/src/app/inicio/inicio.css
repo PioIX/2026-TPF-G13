@@ -1,0 +1,343 @@
+
+/* =====================================
+   EL TRAYECTO - INICIO
+   Azul zafiro, azul eléctrico y plata
+===================================== */
+
+.inicio-page {
+    min-height: 100vh;
+    min-height: 100dvh;
+    box-sizing: border-box;
+    padding: 40px 20px;
+
+    display: flex;
+    justify-content: center;
+    align-items: center;
+
+    color: #f5f9ff;
+    font-family: Arial, Helvetica, sans-serif;
+
+    background:
+        radial-gradient(ellipse at 15% 15%,
+            rgba(0, 100, 255, 0.22),
+            transparent 42%),
+        radial-gradient(ellipse at 85% 85%,
+            rgba(0, 55, 150, 0.20),
+            transparent 45%),
+        linear-gradient(135deg,
+            #02091f,
+            #061b49 55%,
+            #02091f);
+}
+
+.inicio-panel {
+    position: relative;
+    width: 100%;
+    max-width: 580px;
+    box-sizing: border-box;
+    padding: 44px 38px;
+    overflow: hidden;
+    text-align: center;
+
+    background: linear-gradient(145deg,
+            rgba(8, 30, 75, 0.97),
+            rgba(4, 13, 38, 0.98));
+
+    border: 1px solid rgba(93, 163, 255, 0.38);
+    border-radius: 6px;
+
+    box-shadow:
+        0 0 35px rgba(0, 91, 255, 0.10),
+        0 20px 60px rgba(0, 0, 0, 0.4);
+
+    animation: inicio-aparecer 0.6s ease-out;
+}
+
+/* Línea luminosa superior */
+.inicio-panel::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 3px;
+
+    background: linear-gradient(90deg,
+            transparent,
+            #168cff,
+            #a5dcff,
+            #168cff,
+            transparent);
+}
+
+/* Título */
+.inicio-titulo {
+    margin: 0 0 12px;
+
+    font-family: Georgia, "Times New Roman", serif;
+    font-size: clamp(2.5rem, 7vw, 4rem);
+    font-weight: 400;
+    letter-spacing: 3px;
+
+    color: #ffffff;
+
+    text-shadow:
+        0 0 22px rgba(30, 120, 255, 0.28);
+}
+
+.inicio-subtitulo {
+    margin: 0 0 30px;
+
+    color: #80bdff;
+    font-size: 0.85rem;
+    font-weight: 600;
+    letter-spacing: 2px;
+    line-height: 1.8;
+}
+
+/* Separador */
+.inicio-separador {
+    width: 90px;
+    height: 2px;
+    margin: 0 auto 28px;
+    border: 0;
+    border-radius: 5px;
+
+    background: linear-gradient(90deg,
+            transparent,
+            #168cff,
+            #a5dcff,
+            #168cff,
+            transparent);
+}
+
+/* Bienvenida */
+.inicio-bienvenida {
+    margin: 0 0 10px;
+
+    color: #ffffff;
+    font-family: Georgia, "Times New Roman", serif;
+    font-size: clamp(1.3rem, 4vw, 1.65rem);
+    font-weight: 400;
+}
+
+.inicio-rol {
+    display: inline-block;
+    margin: 0 0 30px;
+    padding: 7px 14px;
+
+    color: #a8d6ff;
+    background: rgba(0, 104, 255, 0.10);
+
+    border: 1px solid rgba(100, 175, 255, 0.25);
+    border-radius: 3px;
+
+    font-size: 0.85rem;
+    letter-spacing: 0.5px;
+}
+
+/* Formulario para crear o entrar a una sala */
+.inicio-formulario {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    margin-bottom: 18px;
+}
+
+/* Campo de nombre de sala */
+.inicio-formulario input {
+    width: 100%;
+    min-height: 50px;
+    box-sizing: border-box;
+    padding: 13px 15px;
+
+    color: #ffffff;
+    background: rgba(2, 12, 36, 0.8);
+
+    border: 1px solid rgba(100, 175, 255, 0.35);
+    border-radius: 4px;
+    outline: none;
+
+    font-family: inherit;
+    font-size: 0.95rem;
+
+    transition:
+        border-color 0.2s ease,
+        box-shadow 0.2s ease,
+        background 0.2s ease;
+}
+
+.inicio-formulario input::placeholder {
+    color: #8199bd;
+}
+
+.inicio-formulario input:focus {
+    border-color: #4caeff;
+    background: rgba(4, 22, 59, 0.95);
+
+    box-shadow:
+        0 0 0 3px rgba(0, 123, 255, 0.12);
+}
+
+/* Botones principales */
+.inicio-panel button {
+    width: 100%;
+    min-height: 48px;
+    box-sizing: border-box;
+    padding: 12px 18px;
+
+    color: #ffffff;
+
+    background: linear-gradient(110deg,
+            #0756c9,
+            #073b94 60%,
+            #061e59);
+
+    border: 1px solid #4caeff;
+    border-radius: 4px;
+
+    font-family: inherit;
+    font-size: 0.9rem;
+    font-weight: 700;
+    letter-spacing: 1px;
+
+    cursor: pointer;
+
+    box-shadow: 0 5px 18px rgba(0, 91, 255, 0.12);
+
+    transition:
+        transform 0.2s ease,
+        border-color 0.2s ease,
+        box-shadow 0.2s ease,
+        background 0.2s ease;
+}
+
+.inicio-panel button:hover {
+    background: linear-gradient(110deg,
+            #087bff,
+            #0755d4 60%,
+            #07327d);
+
+    border-color: #b4e5ff;
+
+    box-shadow:
+        0 0 22px rgba(0, 132, 255, 0.25);
+
+    transform: translateY(-2px);
+}
+
+.inicio-panel button:active {
+    transform: translateY(0);
+}
+
+.inicio-panel button:focus-visible {
+    outline: 2px solid #b4e5ff;
+    outline-offset: 4px;
+}
+
+/* Acciones secundarias */
+.inicio-acciones {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-top: 24px;
+}
+
+/* Historial y cerrar sesión */
+.inicio-acciones button {
+    background: rgba(5, 23, 60, 0.45);
+    border: 1px solid rgba(100, 175, 255, 0.45);
+    color: #c5dfff;
+    box-shadow: none;
+}
+
+.inicio-acciones button:hover {
+    background: rgba(8, 65, 145, 0.35);
+    border-color: #80bdff;
+    box-shadow: 0 0 16px rgba(0, 132, 255, 0.14);
+}
+
+/* Mensaje de error al entrar a una sala */
+.inicio-mensaje {
+    margin: 14px 0 0;
+    padding: 12px;
+
+    color: #ffbdc6;
+    background: rgba(120, 20, 40, 0.18);
+
+    border: 1px solid rgba(255, 110, 125, 0.35);
+    border-radius: 4px;
+
+    font-size: 0.9rem;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+}
+
+/* Estados de carga y error */
+.inicio-estado {
+    color: #c5dfff;
+    text-align: center;
+    font-size: 1rem;
+}
+
+.inicio-error {
+    max-width: 500px;
+    padding: 16px;
+
+    color: #ffbdc6;
+    text-align: center;
+    line-height: 1.6;
+
+    background: rgba(120, 20, 40, 0.18);
+    border: 1px solid rgba(255, 110, 125, 0.35);
+    border-radius: 4px;
+}
+
+/* Animación de entrada */
+@keyframes inicio-aparecer {
+    from {
+        opacity: 0;
+        transform: translateY(12px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Adaptación a celulares */
+@media (max-width: 480px) {
+    .inicio-page {
+        padding: 24px 14px;
+    }
+
+    .inicio-panel {
+        padding: 34px 22px;
+    }
+
+    .inicio-titulo {
+        letter-spacing: 1px;
+    }
+
+    .inicio-subtitulo {
+        font-size: 0.75rem;
+        letter-spacing: 1.5px;
+    }
+
+    .inicio-bienvenida {
+        font-size: 1.3rem;
+    }
+}
+
+/* Accesibilidad */
+@media (prefers-reduced-motion: reduce) {
+    .inicio-panel {
+        animation: none;
+    }
+
+    .inicio-formulario input,
+    .inicio-panel button {
+        transition: none;
+    }
+}
