@@ -362,43 +362,57 @@ app.post("/logout", (req, res) => {
 
 //el lobby usa este endpoint par consultar quienes estan dentro de la partida
 app.get("/partidas/:idPartida/jugadores", async (req, res) => {
+    try {
+        if (!req.session.usuario) {
+            return res.status(401).json({
+                error: "Tenés que iniciar sesión"
+            });
+        }
 
-  try {
+        const idPartida = Number(req.params.idPartida);
 
-    if (!req.session.usuario) {
-      return res.status(401).json({
-        error: "Tenés que iniciar sesión"
-      });
+        if (!Number.isInteger(idPartida) || idPartida <= 0) {
+            return res.status(400).json({
+                error: "Identificador de partida inválido"
+            });
+        }
+
+        const jugadores = await mysql.realizarQuery(
+            `SELECT
+                pp.id_participante,
+                pp.id_partida,
+                pp.id_usuario,
+                pp.id_club,
+                pp.id_titulo,
+                pp.puntos_campeon,
+                pp.goles,
+                pp.asistencias,
+                pp.listo,
+                pp.posicion_actual,
+                pp.turno,
+                u.nombre_usuario,
+                c.nombre AS nombre_club,
+                c.liga,
+                t.nombre AS nombre_titulo
+            FROM ParticipantePartida pp
+            INNER JOIN Usuario u
+                ON pp.id_usuario = u.id_usuario
+            LEFT JOIN Club c
+                ON pp.id_club = c.id_club
+            LEFT JOIN Titulo t
+                ON pp.id_titulo = t.id_titulo
+            WHERE pp.id_partida = ${idPartida}`
+        );
+
+        return res.status(200).json(jugadores);
+
+    } catch (error) {
+        console.error("Error al obtener los jugadores:", error);
+
+        return res.status(500).json({
+            error: "Error al obtener los jugadores"
+        });
     }
-
-    const { idPartida } = req.params;
-
-    const jugadores = await mysql.realizarQuery(
-      `SELECT 
-                ParticipantePartida.id_participante,
-                ParticipantePartida.id_usuario,
-                ParticipantePartida.listo,
-                Usuario.nombre_usuario,
-                ParticipantePartida.posicion_actual,
-                ParticipantePartida.turno
-             FROM ParticipantePartida
-             INNER JOIN Usuario
-                ON ParticipantePartida.id_usuario = Usuario.id_usuario
-             WHERE ParticipantePartida.id_partida = ${idPartida}`
-    );
-
-    res.status(200).json(jugadores);
-
-  } catch (error) {
-
-    console.error("Error al obtener los jugadores:", error);
-
-    res.status(500).json({
-      error: "Error al obtener los jugadores"
-    });
-
-  }
-
 });
 
 
@@ -656,11 +670,15 @@ io.on("connection", (socket) => {
       );
 
       // 8. Obtener el estado actualizado.
+
       const jugadoresActualizados = await mysql.realizarQuery(
-        `SELECT id_usuario, posicion_actual, turno
-         FROM ParticipantePartida
-         WHERE id_partida = ${idPartida}`
+        `SELECT pp.id_usuario, pp.posicion_actual, pp.turno, pp.listo, u.nombre_usuario
+      FROM ParticipantePartida pp
+      INNER JOIN Usuario u
+        ON pp.id_usuario = u.id_usuario
+      WHERE pp.id_partida = ${idPartida}`
       );
+
 
       // 9. Avisar a los dos jugadores.
       io.to(`partida_${idPartida}`).emit(
