@@ -1,0 +1,186 @@
+/* =====================================
+   EL TRAYECTO - PANTALLA DE ACCESO
+   Azul zafiro, azul eléctrico y plata
+===================================== */
+
+.acceso {
+    min-height: 100vh;
+    min-height: 100dvh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 30px 20px;
+    color: #f5f9ff;
+
+    background:
+        radial-gradient(ellipse at 50% 0%,
+            rgba(0, 100, 255, 0.28),
+            transparent 55%),
+        radial-gradient(ellipse at 100% 100%,
+            rgba(0, 55, 150, 0.18),
+            transparent 50%),
+        linear-gradient(135deg,
+            #02091f 0%,
+            #061b49 55%,
+            #02091f 100%);
+}
+
+.acceso-panel {
+    position: relative;
+    width: min(460px, 100%);
+    padding: 48px 35px;
+    text-align: center;
+    overflow: hidden;
+
+    border: 1px solid rgba(93, 163, 255, 0.38);
+    border-radius: 6px;
+
+    background: linear-gradient(145deg,
+            rgba(8, 30, 75, 0.96),
+            rgba(4, 13, 38, 0.97));
+
+    box-shadow:
+        0 20px 70px rgba(0, 0, 0, 0.4),
+        0 0 35px rgba(0, 91, 255, 0.10);
+}
+
+/* Detalle azul en la parte superior del panel */
+.acceso-panel::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 3px;
+
+    background: linear-gradient(90deg,
+            transparent,
+            #168cff,
+            #a5dcff,
+            #168cff,
+            transparent);
+}
+
+.acceso-etiqueta {
+    color: #64c7ff;
+    font-size: 10px;
+    font-weight: bold;
+    letter-spacing: 3px;
+}
+
+.acceso-panel h1 {
+    margin: 22px 0;
+    color: #ffffff;
+    font-family: Georgia, "Times New Roman", serif;
+    font-size: clamp(30px, 7vw, 43px);
+    font-weight: 400;
+    letter-spacing: 1px;
+    text-shadow: 0 0 25px rgba(30, 120, 255, 0.18);
+}
+
+.acceso-descripcion {
+    margin-bottom: 32px;
+    color: #c5d5ef;
+    line-height: 1.8;
+}
+
+.acceso-botones {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.acceso-boton {
+    min-height: 52px;
+    padding: 14px;
+
+    border: 1px solid #4caeff;
+    border-radius: 4px;
+
+    color: #ffffff;
+    font-weight: bold;
+    letter-spacing: 2px;
+    cursor: pointer;
+
+    transition:
+        transform 0.2s ease,
+        border-color 0.2s ease,
+        background 0.2s ease,
+        box-shadow 0.2s ease;
+}
+
+/* Botón principal */
+.acceso-boton.principal {
+    background: linear-gradient(110deg,
+            #0756c9,
+            #073b94 60%,
+            #061e59);
+
+    box-shadow: 0 5px 18px rgba(0, 91, 255, 0.14);
+}
+
+/* Botón secundario */
+.acceso-boton.secundario {
+    background: rgba(5, 23, 60, 0.45);
+    border-color: rgba(100, 175, 255, 0.55);
+}
+
+.acceso-boton:hover {
+    border-color: #b4e5ff;
+    box-shadow: 0 0 22px rgba(0, 132, 255, 0.25);
+    transform: translateY(-2px);
+}
+
+.acceso-boton.principal:hover {
+    background: linear-gradient(110deg,
+            #087bff,
+            #0755d4 60%,
+            #07327d);
+}
+
+.acceso-boton.secundario:hover {
+    background: rgba(8, 65, 145, 0.35);
+}
+
+.acceso-boton:focus-visible,
+.acceso-volver:focus-visible {
+    outline: 2px solid #b4e5ff;
+    outline-offset: 4px;
+}
+
+.acceso-volver {
+    margin-top: 30px;
+    padding: 8px;
+    border: none;
+    background: transparent;
+    color: #80bdff;
+    cursor: pointer;
+    transition: color 0.2s ease;
+}
+
+.acceso-volver:hover {
+    color: #ffffff;
+}
+
+@media (max-width: 480px) {
+    .acceso {
+        padding: 22px 16px;
+    }
+
+    .acceso-panel {
+        padding: 38px 22px;
+    }
+
+    .acceso-etiqueta {
+        font-size: 9px;
+        letter-spacing: 2px;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+    .acceso-boton,
+    .acceso-volver {
+        transition: none;
+    }
+}
