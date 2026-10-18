@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { io } from "socket.io-client";
 import Tablero from "@/components/Tablero";
 import Button from "@/components/Button";
+import PanelJugador from "@/components/PanelJugador";
 
 export default function PartidaPage() {
     const searchParams = useSearchParams();
@@ -23,6 +24,7 @@ export default function PartidaPage() {
         if (!idPartida) return;
 
         let socket;
+        let idUsuarioActual = null;
 
         // Obtener el usuario de la sesión.
         fetch("http://localhost:4000/usuario", {
@@ -35,7 +37,8 @@ export default function PartidaPage() {
                 return respuesta.json();
             })
             .then((usuario) => {
-                setIdUsuario(Number(usuario.id_usuario));
+                idUsuarioActual = Number(usuario.id_usuario);
+                setIdUsuario(idUsuarioActual);
 
                 // Cargar posiciones y turnos guardados en MySQL.
                 return fetch(
@@ -79,8 +82,7 @@ export default function PartidaPage() {
                     setResultadoDado(estado.resultadoDado);
 
                     const jugoYo =
-                        Number(estado.idUsuarioQueJugo) ===
-                        Number(idUsuario);
+                        Number(estado.idUsuarioQueJugo) === idUsuarioActual;
 
                     setMensaje(
                         jugoYo
@@ -147,19 +149,16 @@ export default function PartidaPage() {
             <p>Partida: {idPartida}</p>
             <p>
                 Conexión: {conectado ? "Conectado" : "Desconectado"}
-            </p>
+            </p> 
+            <PanelJugador
+                titulo="Tu futbolista"
+                jugador={miJugador}
+            />
 
-            <section>
-                <h2>Tu futbolista</h2>
-                <p>Jugador: {miJugador?.nombre_usuario ?? "Cargando..."}</p>
-                <p>Posición: {miPosicion}</p>
-            </section>
-
-            <section>
-                <h2>Rival</h2>
-                <p>Jugador: {rival?.nombre_usuario ?? "Esperando rival..."}</p>
-                <p>Posición: {posicionRival}</p>
-            </section>
+            <PanelJugador
+                titulo="Rival"
+                jugador={rival}
+            />
 
             <Tablero
                 posicionJugador1={miPosicion}
