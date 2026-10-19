@@ -21,21 +21,28 @@ const SQL_CONFIGURATION_DATA =
  * @returns Respuesta de la base de datos. Suele ser un vector de objetos.
  */
 
-exports.realizarQuery = async function (queryString) {
-	let returnObject;
-	let connection;
-	try {
-		connection = await mySql.createConnection(SQL_CONFIGURATION_DATA);
-		returnObject = await connection.execute(queryString);
-	}
-	catch (err) {
-		console.log(err);
-	}
-	finally {
-		if (connection && connection.end) connection.end();
-	}
-	return returnObject[0];
-}
+exports.realizarQuery = async function (queryString, parametros = []) {
+  let returnObject;
+  let connection;
+
+  try {
+    connection = await mySql.createConnection(SQL_CONFIGURATION_DATA);
+
+    returnObject = await connection.execute(
+      queryString,
+      parametros
+    );
+  } catch (err) {
+    console.log(err);
+    throw err;
+  } finally {
+    if (connection) {
+      await connection.end();
+    }
+  }
+
+  return returnObject[0];
+};
 
 //→ INSERT donde necesitamos obtener el ID generado.
 exports.realizarQueryInsert = async function (queryString) {

@@ -13,20 +13,17 @@
   padding: 60px 8%;
   color: #f5f9ff;
 
-  background:
-    radial-gradient(ellipse at 75% 45%,
-      rgba(0, 100, 255, 0.24),
-      transparent 48%),
-    linear-gradient(90deg,
-      rgba(2, 8, 28, 0.97) 0%,
-      rgba(3, 17, 54, 0.90) 36%,
-      rgba(4, 29, 86, 0.54) 70%,
-      rgba(2, 9, 31, 0.20) 100%),
-    linear-gradient(0deg,
-      rgba(2, 7, 25, 0.78),
-      transparent 65%),
-    url("/estadio.jpg") center / cover no-repeat,
-    #02091f;
+background:
+    linear-gradient(
+        rgba(2, 9, 31, 0.62),
+        rgba(2, 9, 31, 0.78)
+    ),
+    url("/images/estadio.png");
+
+background-size: cover;
+background-position: center;
+background-repeat: no-repeat;
+background-attachment: fixed;
 }
 
 .portada-overlay {
