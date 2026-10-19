@@ -38,18 +38,49 @@ const mysql = require("./modulos/mysql");
 
 //PEDIDOS 
 // OBTENER TODOS LOS CLUBES
+
+ // OBTENER TODOS LOS CLUBES
 app.get("/clubes", async (req, res) => {
   try {
-    const clubes = await mysql.realizarQuery("SELECT * FROM Club");
+    const clubes = await mysql.realizarQuery(
+      `SELECT id_club, nombre, liga, jerarquia, copa_internacional, descripcion
+       FROM Club
+       ORDER BY liga ASC, nombre ASC`
+    );
 
     res.status(200).json(clubes);
   } catch (error) {
     console.error("Error al obtener los clubes:", error);
+
     res.status(500).json({
       error: "Error al obtener los clubes"
     });
   }
 });
+
+
+
+ // OBTENER TODAS LAS LIGAS DISPONIBLES
+app.get("/ligas", async (req, res) => {
+  try {
+    const ligas = await mysql.realizarQuery(
+      `SELECT DISTINCT liga
+       FROM Club
+       WHERE liga IS NOT NULL AND liga <> ''
+       ORDER BY liga ASC`
+    );
+
+    res.status(200).json(ligas);
+  } catch (error) {
+    console.error("Error al obtener las ligas:", error);
+
+    res.status(500).json({
+      error: "Error al obtener las ligas"
+    });
+  }
+});
+
+
 
 //
 // REGISTRO DE USUARIO
