@@ -1,94 +1,73 @@
-
-/* =====================================
-   EL TRAYECTO - LOGIN
-   Azul Champions League
-===================================== */
-
 .login {
-    min-height: 100vh;
-    min-height: 100dvh;
+    position: relative;
+    isolation: isolate;
     display: flex;
+    min-height: 100vh;
+    min-height: 100svh;
     align-items: center;
     justify-content: center;
-    padding: 35px 20px;
-    color: #f5f9ff;
-
-    background:
-        radial-gradient(ellipse at 50% 0%,
-            rgba(0, 100, 255, 0.25),
-            transparent 55%),
-        radial-gradient(ellipse at 100% 100%,
-            rgba(0, 55, 150, 0.17),
-            transparent 50%),
-        linear-gradient(135deg,
-            #02091f 0%,
-            #061b49 55%,
-            #02091f 100%);
+    padding: clamp(24px, 6vw, 64px) 20px;
+    overflow: hidden;
+    color: var(--color-text);
+    background-color: var(--color-night);
+    background-image:
+        linear-gradient(135deg, rgba(5, 9, 22, 0.96), rgba(5, 9, 22, 0.74)),
+        url("/images/estadio.png");
+    background-position: center;
+    background-repeat: no-repeat;
+    background-size: cover;
 }
 
 .login-panel {
     position: relative;
     width: min(460px, 100%);
-    padding: 44px 36px 30px;
+    padding: clamp(30px, 6vw, 46px);
     overflow: hidden;
-
-    border: 1px solid rgba(93, 163, 255, 0.38);
-    border-radius: 6px;
-
-    background: linear-gradient(145deg,
-            rgba(8, 30, 75, 0.97),
-            rgba(4, 13, 38, 0.98));
-
-    box-shadow:
-        0 20px 70px rgba(0, 0, 0, 0.4),
-        0 0 35px rgba(0, 91, 255, 0.10);
-
-    animation: login-aparecer 0.6s ease-out;
+    border: 1px solid var(--color-line);
+    border-radius: 10px;
+    background: var(--color-surface);
+    box-shadow: 0 28px 90px rgba(0, 0, 0, 0.48);
+    backdrop-filter: blur(18px);
+    animation: login-aparecer 450ms ease-out both;
 }
 
 .login-panel::before {
-    content: "";
     position: absolute;
     top: 0;
     left: 0;
     width: 100%;
     height: 3px;
-
-    background: linear-gradient(90deg,
-            transparent,
-            #168cff,
-            #a5dcff,
-            #168cff,
-            transparent);
+    background: linear-gradient(90deg, transparent, var(--color-accent), var(--color-rose), transparent);
+    content: "";
 }
 
 .login-etiqueta {
     margin: 0;
-    color: #64c7ff;
-    font-size: 10px;
-    font-weight: 700;
-    letter-spacing: 3px;
+    color: var(--color-rose-bright);
+    font-size: 0.65rem;
+    font-weight: 800;
+    letter-spacing: 0.18em;
     text-align: center;
 }
 
 .login-panel h1 {
-    margin: 22px 0 12px;
-    color: #ffffff;
-    font-family: Georgia, "Times New Roman", serif;
-    font-size: clamp(34px, 7vw, 45px);
-    font-weight: 400;
-    letter-spacing: 1px;
+    margin: 20px 0 10px;
+    color: var(--color-text);
+    font-family: var(--font-display), Impact, sans-serif;
+    font-size: clamp(2.1rem, 7vw, 2.8rem);
+    font-weight: 600;
+    letter-spacing: -0.02em;
     text-align: center;
 }
 
 .login-panel h1 span {
-    color: #80bdff;
+    color: var(--color-rose-bright);
 }
 
 .login-descripcion {
     margin: 0;
-    color: #c5d5ef;
-    font-size: 14px;
+    color: var(--color-muted);
+    font-size: 0.9rem;
     line-height: 1.8;
     text-align: center;
 }
@@ -97,16 +76,14 @@
     display: flex;
     align-items: center;
     gap: 12px;
-    width: 150px;
-    margin: 26px auto 30px;
+    width: 140px;
+    margin: 25px auto 27px;
 }
 
 .login-separador span:not(.login-estrella) {
     height: 1px;
     flex: 1;
-    background: linear-gradient(90deg,
-            transparent,
-            #4caeff);
+    background: linear-gradient(90deg, transparent, var(--color-accent), var(--color-rose));
 }
 
 .login-separador span:last-child {
@@ -114,148 +91,117 @@
 }
 
 .login-estrella {
-    color: #c5eaff;
-    font-size: 17px;
-    text-shadow: 0 0 14px rgba(50, 165, 255, 0.8);
+    color: var(--color-accent);
+    font-size: 16px;
 }
 
 .login-formulario {
     display: flex;
     flex-direction: column;
-    gap: 20px;
+    gap: 18px;
 }
 
 .login-campo {
     display: flex;
     flex-direction: column;
-    gap: 9px;
+    gap: 8px;
 }
 
 .login-campo label {
-    color: #9fcaff;
-    font-size: 10px;
-    font-weight: 700;
-    letter-spacing: 2px;
+    color: #c5d3ea;
+    font-size: 0.65rem;
+    font-weight: 800;
+    letter-spacing: 0.15em;
 }
 
-/* Estiliza los input de tu componente reutilizable */
 .login-campo input {
     width: 100%;
-    min-height: 48px;
+    min-height: 49px;
     padding: 13px 14px;
-
-    border: 1px solid rgba(100, 175, 255, 0.35);
+    border: 1px solid var(--color-line);
     border-radius: 4px;
     outline: none;
-
-    background: rgba(2, 12, 36, 0.75);
-    color: #ffffff;
-    font-family: inherit;
-    font-size: 14px;
-
-    transition:
-        border-color 0.2s ease,
-        box-shadow 0.2s ease,
-        background 0.2s ease;
+    background: rgba(5, 10, 24, 0.72);
+    color: var(--color-text);
+    font-size: 0.9rem;
+    transition: border-color 180ms ease, box-shadow 180ms ease, background 180ms ease;
 }
 
 .login-campo input::placeholder {
-    color: #7189ad;
+    color: #899bb7;
 }
 
 .login-campo input:focus {
-    border-color: #4caeff;
-    background: rgba(4, 22, 59, 0.95);
-    box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.12);
+    border-color: var(--color-accent);
+    background: rgba(5, 10, 24, 0.92);
+    box-shadow: 0 0 0 3px rgba(38, 120, 255, 0.18);
 }
 
 .login-boton {
-    margin-top: 5px;
+    margin-top: 4px;
 }
 
 .login-boton button {
     display: flex;
-    align-items: center;
-    justify-content: center;
     width: 100%;
     min-height: 51px;
+    align-items: center;
+    justify-content: center;
     padding: 14px;
-
-    border: 1px solid #4caeff;
-    border-radius: 4px;
-
-    background: linear-gradient(110deg,
-            #0756c9,
-            #073b94 60%,
-            #061e59);
-
-    color: #ffffff;
-    font-size: 13px;
-    font-weight: 700;
-    letter-spacing: 3px;
+    border: 1px solid var(--color-accent);
+    border-radius: 3px;
+    background: linear-gradient(110deg, var(--color-accent), #694dff 62%, #b745d7);
+    color: #fff;
+    font-size: 0.78rem;
+    font-weight: 800;
+    letter-spacing: 0.14em;
     cursor: pointer;
-
-    box-shadow: 0 5px 18px rgba(0, 91, 255, 0.14);
-
-    transition:
-        transform 0.2s ease,
-        border-color 0.2s ease,
-        background 0.2s ease,
-        box-shadow 0.2s ease;
+    transition: transform 180ms ease, background 180ms ease;
 }
 
 .login-boton button:hover {
     transform: translateY(-2px);
-    border-color: #b4e5ff;
-
-    background: linear-gradient(110deg,
-            #087bff,
-            #0755d4 60%,
-            #07327d);
-
-    box-shadow: 0 0 22px rgba(0, 132, 255, 0.25);
+    background: linear-gradient(110deg, #3584ff, #8759ff 60%, var(--color-rose));
 }
 
 .login-boton button:focus-visible,
 .login-volver:focus-visible {
-    outline: 2px solid #b4e5ff;
+    outline: 2px solid #fff;
     outline-offset: 4px;
 }
 
 .login-error {
     margin: 0;
     padding: 11px 12px;
-    border: 1px solid rgba(255, 110, 125, 0.4);
+    border: 1px solid rgba(255, 129, 129, 0.3);
     border-radius: 4px;
-    background: rgba(120, 20, 40, 0.18);
-    color: #ffb5bf;
-    font-size: 13px;
+    background: rgba(102, 22, 22, 0.25);
+    color: #ffc3bd;
+    font-size: 0.82rem;
     line-height: 1.5;
 }
 
 .login-volver {
     display: block;
-    margin: 24px auto 0;
+    margin: 21px auto 0;
     padding: 8px;
-
-    border: none;
+    border: 0;
     background: transparent;
-    color: #80bdff;
-    font-size: 13px;
+    color: #b5c4dc;
+    font-size: 0.82rem;
     cursor: pointer;
-
-    transition: color 0.2s ease;
+    transition: color 180ms ease;
 }
 
 .login-volver:hover {
-    color: #ffffff;
+    color: var(--color-rose-bright);
 }
 
 .login-pie {
-    margin: 24px 0 0;
-    color: #819bc3;
-    font-size: 9px;
-    letter-spacing: 2px;
+    margin: 20px 0 0;
+    color: #899bb7;
+    font-size: 0.59rem;
+    letter-spacing: 0.15em;
     line-height: 1.8;
     text-align: center;
 }
@@ -274,21 +220,20 @@
 
 @media (max-width: 480px) {
     .login {
-        padding: 22px 16px;
+        padding: 20px 14px;
+        background-position: 58% center;
     }
 
     .login-panel {
-        padding: 38px 22px 26px;
+        padding: 34px 24px 26px;
     }
 
     .login-etiqueta {
-        font-size: 9px;
-        letter-spacing: 2px;
+        font-size: 0.58rem;
     }
 
     .login-pie {
-        font-size: 8px;
-        letter-spacing: 1.5px;
+        font-size: 0.53rem;
     }
 }
 

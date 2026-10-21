@@ -121,15 +121,15 @@ export default function LobbyPage() {
 
 
     if (cargando) {
-        return <p>Cargando lobby...</p>;
+        return <p className="game-state">Cargando lobby...</p>;
     }
 
     if (error && jugadores.length === 0) {
-        return <p>{error}</p>;
+        return <p className="game-state">{error}</p>;
     }
 
     return (
-        <main>
+        <main className="game-page game-page--lobby">
             <h1>Lobby</h1>
 
             <p>

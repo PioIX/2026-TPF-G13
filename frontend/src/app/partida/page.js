@@ -136,15 +136,15 @@ export default function PartidaPage() {
         jugadores.every((jugador) => Boolean(Number(jugador.listo)));
 
     if (!idPartida) {
-        return <p>No se encontró el identificador de la partida.</p>;
+        return <p className="game-state">No se encontró el identificador de la partida.</p>;
     }
 
     if (cargando) {
-        return <p>{mensaje}</p>;
+        return <p className="game-state">{mensaje}</p>;
     }
 
     return (
-        <main>
+        <main className="game-page game-page--partida">
             <h1>El Trayecto</h1>
             <p>Partida: {idPartida}</p>
             <p>
@@ -165,7 +165,7 @@ export default function PartidaPage() {
                 posicionJugador2={posicionRival}
             />
 
-            <section>
+            <section className="game-turno">
                 <h2>Tu turno</h2>
                 <p>
                     Resultado del dado:{" "}

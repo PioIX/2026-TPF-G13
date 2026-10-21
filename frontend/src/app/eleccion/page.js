@@ -177,17 +177,17 @@ export default function EleccionPage() {
     }
 
     if (cargando) {
-        return <p>Cargando ligas y clubes...</p>;
+        return <p className="game-state">Cargando ligas y clubes...</p>;
     }
 
     return (
-        <main>
+        <main className="game-page game-page--eleccion">
             <h1>El Trayecto</h1>
             <h2>Elegí tu club y creá tu leyenda</h2>
 
             {error && <p>{error}</p>}
 
-            <form onSubmit={confirmarEleccion}>
+            <form className="game-form" onSubmit={confirmarEleccion}>
                 <label htmlFor="liga">Liga</label>
                 <select
                     id="liga"
