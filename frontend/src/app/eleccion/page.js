@@ -57,6 +57,7 @@ export default function EleccionPage() {
             });
     }, []);
 
+
     useEffect(() => {
         if (!idPartida) {
             setError("No se encontró el identificador de la partida");
@@ -68,32 +69,56 @@ export default function EleccionPage() {
         })
             .then((respuesta) => {
                 if (!respuesta.ok) {
-                    
                     return respuesta.json().then((datos) => {
-                        throw new Error(datos.error || "No se pudo consultar la elección");
+                        throw new Error(
+                            datos.error || "No se pudo consultar la elección"
+                        );
                     });
                 }
+
                 return respuesta.json();
             })
             .then((datos) => {
                 setJugadores(datos.jugadores);
 
+                // Buscar la elección del usuario de esta sesión.
                 const miEleccion = datos.jugadores.find(
-                    (jugador) => jugador.id_club !== null &&
-                        jugador.id_club !== undefined
+                    (jugador) =>
+                        Number(jugador.id_usuario) === Number(datos.idUsuario)
                 );
 
-                // La elección personal se completará al identificar
-                // al usuario de la sesión.
+                if (miEleccion) {
+                    if (miEleccion.id_club != null) {
+                        setIdClub(String(miEleccion.id_club));
+
+                        const clubElegido = clubes.find(
+                            (club) =>
+                                Number(club.id_club) ===
+                                Number(miEleccion.id_club)
+                        );
+
+                        if (clubElegido) {
+                            setLigaSeleccionada(clubElegido.liga);
+                        }
+                    }
+
+                    if (miEleccion.nombre_leyenda) {
+                        setNombreLeyenda(miEleccion.nombre_leyenda);
+                    }
+                }
+
                 if (datos.ambosConfirmaron) {
-                    setMensaje("Ambos jugadores confirmaron su elección.");
+                    setMensaje(
+                        "Ambos jugadores confirmaron su elección."
+                    );
                 }
             })
             .catch((error) => {
-                console.error(error);
+                console.error("Error al consultar la elección:", error);
                 setError(error.message);
             });
-    }, [idPartida]);
+    }, [idPartida, clubes]);
+
 
     const clubesDeLaLiga = clubes.filter(
         (club) => club.liga === ligaSeleccionada
@@ -166,6 +191,10 @@ export default function EleccionPage() {
             })
             .then((datos) => {
                 setJugadores(datos.jugadores);
+
+                if (datos.ambosConfirmaron) {
+                    setMensaje("¡Ambos jugadores confirmaron! Ya pueden comenzar.");
+                }
             })
             .catch((error) => {
                 console.error(error);
