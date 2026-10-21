@@ -16,7 +16,8 @@ export default function HomePage() {
                 </p>
 
                 <h1 className="portada-titulo">
-                    EL <span>TRAYECTO</span>
+                    <span className="portada-titulo-prefijo">EL</span>
+                    <span className="portada-titulo-nombre">TRAYECTO</span>
                 </h1>
 
                 <div className="portada-separador">

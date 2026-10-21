@@ -78,11 +78,13 @@ export default function LobbyPage() {
             setError("");
         });
 
+        
         socket.on("partidaIniciada", (datos) => {
-            console.log("¡Comienza la partida!", datos.idPartida);
+            console.log("¡Lobby completado! Pasando a elección de equipos.", datos.idPartida);
 
-            router.push(`/partida?id_partida=${datos.idPartida}`);
+            router.push(`/eleccion?id_partida=${datos.idPartida}`);
         });
+
 
         socket.on("connect_error", (error) => {
             console.error("Error de conexión con Socket.IO:", error);
@@ -119,15 +121,15 @@ export default function LobbyPage() {
 
 
     if (cargando) {
-        return <p>Cargando lobby...</p>;
+        return <p className="game-state">Cargando lobby...</p>;
     }
 
     if (error && jugadores.length === 0) {
-        return <p>{error}</p>;
+        return <p className="game-state">{error}</p>;
     }
 
     return (
-        <main>
+        <main className="game-page game-page--lobby">
             <h1>Lobby</h1>
 
             <p>

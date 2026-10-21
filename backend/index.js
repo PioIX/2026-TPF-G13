@@ -82,6 +82,65 @@ app.get("/ligas", async (req, res) => {
 
 
 
+
+app.get("/partidas/:idPartida/eleccion", async (req, res) => {
+    try {
+        if (!req.session.usuario) {
+            return res.status(401).json({
+                error: "Tenés que iniciar sesión"
+            });
+        }
+
+        const idPartida = Number(req.params.idPartida);
+        const idUsuario = Number(req.session.usuario.id_usuario);
+
+        if (!Number.isInteger(idPartida) || idPartida <= 0) {
+            return res.status(400).json({
+                error: "Identificador de partida inválido"
+            });
+        }
+
+        // Verificamos que el usuario pertenezca a la partida.
+        const participacion = await mysql.realizarQuery(
+            `SELECT id_participante
+             FROM ParticipantePartida
+             WHERE id_partida = ${idPartida}
+               AND id_usuario = ${idUsuario}`
+        );
+
+        if (!participacion || participacion.length === 0) {
+            return res.status(403).json({
+                error: "No participás de esta partida"
+            });
+        }
+
+        // Obtenemos las elecciones de ambos participantes.
+        const jugadores = await mysql.realizarQuery(
+            `SELECT
+                pp.id_participante,
+                pp.id_usuario,
+                pp.nombre_leyenda,
+                pp.id_club,
+                c.nombre AS nombre_club,
+                c.liga
+             FROM ParticipantePartida pp
+             LEFT JOIN Club c
+                ON pp.id_club = c.id_club
+             WHERE pp.id_partida = ${idPartida}`
+        );
+
+        return res.status(200).json(jugadores);
+
+    } catch (error) {
+        console.error("Error al obtener la elección:", error);
+
+        return res.status(500).json({
+            error: "Error al obtener la elección de los jugadores"
+        });
+    }
+});
+
+
 //
 // REGISTRO DE USUARIO
 app.post("/registro", async (req, res) => {
