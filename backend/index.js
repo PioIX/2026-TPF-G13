@@ -83,6 +83,7 @@ app.get("/ligas", async (req, res) => {
 
 
 
+
 app.get("/partidas/:idPartida/eleccion", async (req, res) => {
     try {
         if (!req.session.usuario) {
@@ -140,6 +141,142 @@ app.get("/partidas/:idPartida/eleccion", async (req, res) => {
     }
 });
 
+
+app.post("/partidas/:idPartida/eleccion", async (req, res) => {
+    try {
+        // 1. Verificar sesión.
+        if (!req.session.usuario) {
+            return res.status(401).json({
+                error: "Tenés que iniciar sesión"
+            });
+        }
+
+        const idPartida = Number(req.params.idPartida);
+        const idUsuario = Number(req.session.usuario.id_usuario);
+        const idClub = Number(req.body.id_club);
+        const nombreLeyenda =
+            typeof req.body.nombre_leyenda === "string"
+                ? req.body.nombre_leyenda.trim()
+                : "";
+
+        // 2. Validar los datos recibidos.
+        if (
+            !Number.isInteger(idPartida) || idPartida <= 0 ||
+            !Number.isInteger(idUsuario) || idUsuario <= 0 ||
+            !Number.isInteger(idClub) || idClub <= 0
+        ) {
+            return res.status(400).json({
+                error: "Los identificadores enviados no son válidos"
+            });
+        }
+
+        if (!nombreLeyenda || nombreLeyenda.length > 100) {
+            return res.status(400).json({
+                error: "El nombre de la leyenda debe tener entre 1 y 100 caracteres"
+            });
+        }
+
+        // 3. Comprobar que la partida exista y tenga dos participantes.
+        const participantes = await mysql.realizarQuery(
+            `SELECT id_usuario
+             FROM ParticipantePartida
+             WHERE id_partida = ${idPartida}`
+        );
+
+        if (!participantes || participantes.length !== 2) {
+            return res.status(409).json({
+                error: "La partida debe tener exactamente dos jugadores"
+            });
+        }
+
+        // 4. Comprobar que el usuario pertenezca a esa partida.
+        const miParticipacion = participantes.find(
+            (jugador) =>
+                Number(jugador.id_usuario) === idUsuario
+        );
+
+        if (!miParticipacion) {
+            return res.status(403).json({
+                error: "No participás de esta partida"
+            });
+        }
+
+        // 5. Comprobar que el club exista.
+        const clubes = await mysql.realizarQuery(
+            `SELECT id_club
+             FROM Club
+             WHERE id_club = ${idClub}`
+        );
+
+        if (!clubes || clubes.length === 0) {
+            return res.status(400).json({
+                error: "El club seleccionado no existe"
+            });
+        }
+
+        // 6. Escapar el texto antes de incorporarlo a la consulta SQL.
+        const nombreEscapado = nombreLeyenda
+            .replace(/\\/g, "\\\\")
+            .replace(/'/g, "\\'");
+
+        // 7. Guardar la elección del usuario actual.
+        await mysql.realizarQuery(
+            `UPDATE ParticipantePartida
+             SET id_club = ${idClub},
+                 nombre_leyenda = '${nombreEscapado}'
+             WHERE id_partida = ${idPartida}
+               AND id_usuario = ${idUsuario}`
+        );
+
+        // 8. Consultar las elecciones actualizadas.
+        const jugadores = await mysql.realizarQuery(
+            `SELECT
+                pp.id_participante,
+                pp.id_usuario,
+                pp.nombre_leyenda,
+                pp.id_club,
+                u.nombre_usuario,
+                c.nombre AS nombre_club,
+                c.liga,
+                CASE
+                    WHEN pp.id_club IS NOT NULL
+                     AND pp.nombre_leyenda IS NOT NULL
+                     AND TRIM(pp.nombre_leyenda) <> ''
+                    THEN 1
+                    ELSE 0
+                END AS eleccion_confirmada
+             FROM ParticipantePartida pp
+             INNER JOIN Usuario u
+                ON pp.id_usuario = u.id_usuario
+             LEFT JOIN Club c
+                ON pp.id_club = c.id_club
+             WHERE pp.id_partida = ${idPartida}`
+        );
+
+        const ambosConfirmaron =
+            jugadores.length === 2 &&
+            jugadores.every(
+                (jugador) =>
+                    Number(jugador.eleccion_confirmada) === 1
+            );
+
+        // 9. Responder con los datos que utiliza el frontend.
+        return res.status(200).json({
+            mensaje: "Elección guardada correctamente",
+            idPartida,
+            idUsuario,
+            jugadores,
+            ambosConfirmaron
+        });
+
+    } catch (error) {
+        console.error("Error al guardar la elección:", error);
+
+        return res.status(500).json({
+            error: "No se pudo guardar la elección"
+        });
+    }
+});
 
 //
 // REGISTRO DE USUARIO
