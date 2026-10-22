@@ -3,6 +3,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { useSocket } from "@/hooks/useSocket";
 import Button from "@/components/Button";
 import Input from "@/components/Input";
 
@@ -10,6 +11,11 @@ export default function EleccionPage() {
     const router = useRouter();
     const searchParams = useSearchParams();
     const idPartida = searchParams.get("id_partida");
+
+    const { socket, isConnected } = useSocket(
+        { withCredentials: true },
+        "http://localhost:4000"
+    );
 
     const [ligas, setLigas] = useState([]);
     const [clubes, setClubes] = useState([]);
@@ -118,6 +124,40 @@ export default function EleccionPage() {
                 setError(error.message);
             });
     }, [idPartida, clubes]);
+
+
+    useEffect(() => {
+        if (!socket || !idPartida || !isConnected) return;
+
+        function actualizarElecciones(estado) {
+            if (Number(estado.idPartida) !== Number(idPartida)) return;
+
+            setJugadores(estado.jugadores);
+
+            if (estado.ambosConfirmaron) {
+                setMensaje("¡Ambos jugadores confirmaron! Entrando a la partida...");
+            }
+        }
+
+        function iniciarPartida(datos) {
+            if (Number(datos.idPartida) !== Number(idPartida)) return;
+
+            router.replace(`/partida?id_partida=${idPartida}`);
+        }
+
+        socket.emit("joinRoom", {
+            idPartida: Number(idPartida)
+        });
+
+        socket.on("eleccionesActualizadas", actualizarElecciones);
+        socket.on("eleccionCompleta", iniciarPartida);
+
+        return () => {
+            socket.off("eleccionesActualizadas", actualizarElecciones);
+            socket.off("eleccionCompleta", iniciarPartida);
+        };
+    }, [socket, isConnected, idPartida, router]);
+
 
 
     const clubesDeLaLiga = clubes.filter(
