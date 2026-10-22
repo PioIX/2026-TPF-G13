@@ -23,10 +23,10 @@
     align-items: center;
     justify-content: center;
     gap: 8px;
-    background: #17142a;
-    border: 2px solid #6946b8;
+    background: rgba(15, 20, 48, 0.94);
+    border: 1px solid rgba(128, 80, 255, 0.6);
     border-radius: 10px;
-    color: white;
+    color: #f3f7ff;
     transition: background 0.2s, border-color 0.2s;
     box-sizing: border-box;
 }
@@ -38,13 +38,13 @@
 
 .temporada-casillero {
     font-size: 14px;
-    color: #c9b8ff;
+    color: #b4c5ff;
 }
 
 .casillero.activo {
-    background: #39205d;
-    border-color: #ff4fd8;
-    box-shadow: 0 0 12px #ff4fd866;
+    background: linear-gradient(145deg, rgba(23, 105, 255, 0.35), rgba(244, 84, 163, 0.24));
+    border-color: #f454a3;
+    box-shadow: 0 0 18px rgba(244, 84, 163, 0.32), 0 0 22px rgba(23, 105, 255, 0.24);
 }
 
 .fichas-casillero {
@@ -67,11 +67,11 @@
 }
 
 .ficha-jugador-1 {
-    background: #26baff;
-    color: #101020;
+    background: #2678ff;
+    color: #fff;
 }
 
 .ficha-jugador-2 {
-    background: #ff4fd8;
-    color: #171020;
+    background: #f454a3;
+    color: #fff;
 }

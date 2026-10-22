@@ -1,229 +1,150 @@
-
-/* =====================================
-   EL TRAYECTO - INICIO
-   Azul zafiro, azul eléctrico y plata
-===================================== */
-
 .inicio-page {
-    min-height: 100vh;
-    min-height: 100dvh;
-    box-sizing: border-box;
-    padding: 40px 20px;
-
+    position: relative;
+    isolation: isolate;
     display: flex;
-    justify-content: center;
+    min-height: 100vh;
+    min-height: 100svh;
     align-items: center;
-
-    color: #f5f9ff;
-    font-family: Arial, Helvetica, sans-serif;
-
-    background:
-        radial-gradient(ellipse at 15% 15%,
-            rgba(0, 100, 255, 0.22),
-            transparent 42%),
-        radial-gradient(ellipse at 85% 85%,
-            rgba(0, 55, 150, 0.20),
-            transparent 45%),
-        linear-gradient(135deg,
-            #02091f,
-            #061b49 55%,
-            #02091f);
+    justify-content: center;
+    padding: clamp(24px, 6vw, 72px) 20px;
+    overflow: hidden;
+    color: var(--color-text);
+    background-color: var(--color-night);
+    background-image:
+        linear-gradient(90deg, rgba(5, 7, 24, 0.96) 0%, rgba(5, 7, 24, 0.82) 42%, rgba(5, 7, 24, 0.2) 100%),
+        linear-gradient(0deg, rgba(5, 7, 24, 0.62), transparent 45%),
+        radial-gradient(ellipse at 78% 20%, rgba(128, 80, 255, 0.22), transparent 42%),
+        url("/images/estadio.png");
+    background-position: center;
+    background-repeat: no-repeat;
+    background-size: cover;
 }
 
 .inicio-panel {
     position: relative;
-    width: 100%;
-    max-width: 580px;
-    box-sizing: border-box;
-    padding: 44px 38px;
+    width: min(580px, 100%);
+    padding: clamp(30px, 6vw, 52px);
     overflow: hidden;
-    text-align: center;
-
-    background: linear-gradient(145deg,
-            rgba(8, 30, 75, 0.97),
-            rgba(4, 13, 38, 0.98));
-
-    border: 1px solid rgba(93, 163, 255, 0.38);
-    border-radius: 6px;
-
-    box-shadow:
-        0 0 35px rgba(0, 91, 255, 0.10),
-        0 20px 60px rgba(0, 0, 0, 0.4);
-
-    animation: inicio-aparecer 0.6s ease-out;
+    border: 1px solid var(--color-line);
+    border-radius: 10px;
+    background: var(--color-surface);
+    box-shadow: 0 28px 90px rgba(0, 0, 0, 0.48);
+    backdrop-filter: blur(18px);
+    animation: inicio-aparecer 450ms ease-out both;
 }
 
-/* Línea luminosa superior */
 .inicio-panel::before {
-    content: "";
     position: absolute;
     top: 0;
     left: 0;
     width: 100%;
     height: 3px;
-
-    background: linear-gradient(90deg,
-            transparent,
-            #168cff,
-            #a5dcff,
-            #168cff,
-            transparent);
+    background: linear-gradient(90deg, transparent, var(--color-accent), var(--color-rose), transparent);
+    content: "";
 }
 
-/* Título */
 .inicio-titulo {
-    margin: 0 0 12px;
-
-    font-family: Georgia, "Times New Roman", serif;
-    font-size: clamp(2.5rem, 7vw, 4rem);
+    margin: 0 0 9px;
+    color: var(--color-text);
+    font-family: var(--font-display), Impact, sans-serif;
+    width: fit-content;
+    max-width: 100%;
+    background: linear-gradient(100deg, #fff 2%, #829fff 52%, var(--color-rose-bright) 100%);
+    background-clip: text;
+    color: transparent;
+    font-size: clamp(3rem, 8vw, 5rem);
     font-weight: 400;
-    letter-spacing: 3px;
-
-    color: #ffffff;
-
-    text-shadow:
-        0 0 22px rgba(30, 120, 255, 0.28);
+    letter-spacing: -0.015em;
+    line-height: 0.9;
+    text-transform: uppercase;
 }
 
 .inicio-subtitulo {
-    margin: 0 0 30px;
-
-    color: #80bdff;
-    font-size: 0.85rem;
-    font-weight: 600;
-    letter-spacing: 2px;
+    margin: 0 0 26px;
+    color: var(--color-rose-bright);
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.17em;
     line-height: 1.8;
 }
 
-/* Separador */
 .inicio-separador {
-    width: 90px;
-    height: 2px;
-    margin: 0 auto 28px;
+    width: 100%;
+    height: 1px;
+    margin: 0 0 25px;
     border: 0;
-    border-radius: 5px;
-
-    background: linear-gradient(90deg,
-            transparent,
-            #168cff,
-            #a5dcff,
-            #168cff,
-            transparent);
+    background: var(--color-line);
 }
 
-/* Bienvenida */
 .inicio-bienvenida {
-    margin: 0 0 10px;
-
-    color: #ffffff;
-    font-family: Georgia, "Times New Roman", serif;
-    font-size: clamp(1.3rem, 4vw, 1.65rem);
-    font-weight: 400;
+    margin: 0 0 12px;
+    color: var(--color-text);
+    font-size: clamp(1.25rem, 4vw, 1.6rem);
+    font-weight: 600;
 }
 
 .inicio-rol {
-    display: inline-block;
-    margin: 0 0 30px;
-    padding: 7px 14px;
-
-    color: #a8d6ff;
-    background: rgba(0, 104, 255, 0.10);
-
-    border: 1px solid rgba(100, 175, 255, 0.25);
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0 0 28px;
+    padding: 8px 11px;
+    border: 1px solid rgba(38, 120, 255, 0.32);
     border-radius: 3px;
-
-    font-size: 0.85rem;
-    letter-spacing: 0.5px;
+    background: rgba(38, 120, 255, 0.12);
+    color: var(--color-accent-bright);
+    font-size: 0.8rem;
 }
 
-/* Formulario para crear o entrar a una sala */
 .inicio-formulario {
     display: flex;
     flex-direction: column;
-    gap: 14px;
-    margin-bottom: 18px;
+    gap: 12px;
+    margin-bottom: 17px;
 }
 
-/* Campo de nombre de sala */
 .inicio-formulario input {
     width: 100%;
     min-height: 50px;
-    box-sizing: border-box;
     padding: 13px 15px;
-
-    color: #ffffff;
-    background: rgba(2, 12, 36, 0.8);
-
-    border: 1px solid rgba(100, 175, 255, 0.35);
+    border: 1px solid var(--color-line);
     border-radius: 4px;
     outline: none;
-
-    font-family: inherit;
+    background: rgba(5, 10, 24, 0.72);
+    color: var(--color-text);
     font-size: 0.95rem;
-
-    transition:
-        border-color 0.2s ease,
-        box-shadow 0.2s ease,
-        background 0.2s ease;
+    transition: border-color 180ms ease, box-shadow 180ms ease, background 180ms ease;
 }
 
 .inicio-formulario input::placeholder {
-    color: #8199bd;
+    color: #899bb7;
 }
 
 .inicio-formulario input:focus {
-    border-color: #4caeff;
-    background: rgba(4, 22, 59, 0.95);
-
-    box-shadow:
-        0 0 0 3px rgba(0, 123, 255, 0.12);
+    border-color: var(--color-accent);
+    background: rgba(5, 10, 24, 0.92);
+    box-shadow: 0 0 0 3px rgba(38, 120, 255, 0.18);
 }
 
-/* Botones principales */
 .inicio-panel button {
     width: 100%;
     min-height: 48px;
-    box-sizing: border-box;
     padding: 12px 18px;
-
-    color: #ffffff;
-
-    background: linear-gradient(110deg,
-            #0756c9,
-            #073b94 60%,
-            #061e59);
-
-    border: 1px solid #4caeff;
-    border-radius: 4px;
-
-    font-family: inherit;
-    font-size: 0.9rem;
-    font-weight: 700;
-    letter-spacing: 1px;
-
+    border: 1px solid var(--color-accent);
+    border-radius: 3px;
+    background: linear-gradient(110deg, var(--color-accent), #694dff 62%, #b745d7);
+    color: #fff;
+    font-size: 0.83rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
     cursor: pointer;
-
-    box-shadow: 0 5px 18px rgba(0, 91, 255, 0.12);
-
-    transition:
-        transform 0.2s ease,
-        border-color 0.2s ease,
-        box-shadow 0.2s ease,
-        background 0.2s ease;
+    transition: transform 180ms ease, background 180ms ease, border-color 180ms ease;
 }
 
 .inicio-panel button:hover {
-    background: linear-gradient(110deg,
-            #087bff,
-            #0755d4 60%,
-            #07327d);
-
-    border-color: #b4e5ff;
-
-    box-shadow:
-        0 0 22px rgba(0, 132, 255, 0.25);
-
     transform: translateY(-2px);
+    border-color: var(--color-accent-bright);
+    background: linear-gradient(110deg, #3584ff, #8759ff 60%, var(--color-rose));
 }
 
 .inicio-panel button:active {
@@ -231,69 +152,56 @@
 }
 
 .inicio-panel button:focus-visible {
-    outline: 2px solid #b4e5ff;
-    outline-offset: 4px;
+    outline: 2px solid #fff;
+    outline-offset: 3px;
 }
 
-/* Acciones secundarias */
 .inicio-acciones {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-    margin-top: 24px;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    margin-top: 23px;
 }
 
-/* Historial y cerrar sesión */
 .inicio-acciones button {
-    background: rgba(5, 23, 60, 0.45);
-    border: 1px solid rgba(100, 175, 255, 0.45);
-    color: #c5dfff;
-    box-shadow: none;
+    border-color: var(--color-line);
+    background: rgba(255, 255, 255, 0.035);
+    color: var(--color-text);
+    font-weight: 600;
+    letter-spacing: 0.02em;
 }
 
 .inicio-acciones button:hover {
-    background: rgba(8, 65, 145, 0.35);
-    border-color: #80bdff;
-    box-shadow: 0 0 16px rgba(0, 132, 255, 0.14);
+    border-color: rgba(38, 120, 255, 0.65);
+    background: linear-gradient(110deg, rgba(23, 105, 255, 0.16), rgba(244, 84, 163, 0.1));
 }
 
-/* Mensaje de error al entrar a una sala */
-.inicio-mensaje {
-    margin: 14px 0 0;
-    padding: 12px;
-
-    color: #ffbdc6;
-    background: rgba(120, 20, 40, 0.18);
-
-    border: 1px solid rgba(255, 110, 125, 0.35);
+.inicio-mensaje,
+.inicio-error {
+    padding: 13px 15px;
+    border: 1px solid rgba(255, 129, 129, 0.3);
     border-radius: 4px;
-
+    background: rgba(102, 22, 22, 0.25);
+    color: #ffc3bd;
     font-size: 0.9rem;
     line-height: 1.5;
     overflow-wrap: anywhere;
 }
 
-/* Estados de carga y error */
+.inicio-mensaje {
+    margin: 14px 0 0;
+}
+
 .inicio-estado {
-    color: #c5dfff;
+    color: var(--color-muted);
     text-align: center;
-    font-size: 1rem;
 }
 
 .inicio-error {
     max-width: 500px;
-    padding: 16px;
-
-    color: #ffbdc6;
     text-align: center;
-    line-height: 1.6;
-
-    background: rgba(120, 20, 40, 0.18);
-    border: 1px solid rgba(255, 110, 125, 0.35);
-    border-radius: 4px;
 }
 
-/* Animación de entrada */
 @keyframes inicio-aparecer {
     from {
         opacity: 0;
@@ -306,31 +214,24 @@
     }
 }
 
-/* Adaptación a celulares */
 @media (max-width: 480px) {
     .inicio-page {
-        padding: 24px 14px;
+        padding: 20px 14px;
     }
 
     .inicio-panel {
-        padding: 34px 22px;
+        padding: 30px 22px;
     }
 
     .inicio-titulo {
-        letter-spacing: 1px;
+        font-size: clamp(2.7rem, 13vw, 4rem);
     }
 
-    .inicio-subtitulo {
-        font-size: 0.75rem;
-        letter-spacing: 1.5px;
-    }
-
-    .inicio-bienvenida {
-        font-size: 1.3rem;
+    .inicio-acciones {
+        grid-template-columns: 1fr;
     }
 }
 
-/* Accesibilidad */
 @media (prefers-reduced-motion: reduce) {
     .inicio-panel {
         animation: none;
