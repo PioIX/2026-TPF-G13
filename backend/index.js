@@ -84,6 +84,7 @@ app.get("/ligas", async (req, res) => {
 
 
 
+
 app.get("/partidas/:idPartida/eleccion", async (req, res) => {
     try {
         if (!req.session.usuario) {
@@ -101,7 +102,7 @@ app.get("/partidas/:idPartida/eleccion", async (req, res) => {
             });
         }
 
-        // Verificamos que el usuario pertenezca a la partida.
+        // Verificar que el usuario pertenezca a la partida.
         const participacion = await mysql.realizarQuery(
             `SELECT id_participante
              FROM ParticipantePartida
@@ -115,22 +116,45 @@ app.get("/partidas/:idPartida/eleccion", async (req, res) => {
             });
         }
 
-        // Obtenemos las elecciones de ambos participantes.
+        // Obtener los participantes y sus elecciones.
         const jugadores = await mysql.realizarQuery(
             `SELECT
                 pp.id_participante,
                 pp.id_usuario,
                 pp.nombre_leyenda,
                 pp.id_club,
+                pp.nombre_leyenda,
+                u.nombre_usuario,
                 c.nombre AS nombre_club,
-                c.liga
+                c.liga,
+                CASE
+                    WHEN pp.id_club IS NOT NULL
+                     AND pp.nombre_leyenda IS NOT NULL
+                     AND TRIM(pp.nombre_leyenda) <> ''
+                    THEN 1
+                    ELSE 0
+                END AS eleccion_confirmada
              FROM ParticipantePartida pp
+             INNER JOIN Usuario u
+                ON pp.id_usuario = u.id_usuario
              LEFT JOIN Club c
                 ON pp.id_club = c.id_club
              WHERE pp.id_partida = ${idPartida}`
         );
 
-        return res.status(200).json(jugadores);
+        const ambosConfirmaron =
+            jugadores.length === 2 &&
+            jugadores.every(
+                (jugador) =>
+                    Number(jugador.eleccion_confirmada) === 1
+            );
+
+        return res.status(200).json({
+            idPartida,
+            idUsuario,
+            jugadores,
+            ambosConfirmaron
+        });
 
     } catch (error) {
         console.error("Error al obtener la elección:", error);
@@ -140,6 +164,7 @@ app.get("/partidas/:idPartida/eleccion", async (req, res) => {
         });
     }
 });
+
 
 
 app.post("/partidas/:idPartida/eleccion", async (req, res) => {
@@ -260,7 +285,27 @@ app.post("/partidas/:idPartida/eleccion", async (req, res) => {
                     Number(jugador.eleccion_confirmada) === 1
             );
 
-        // 9. Responder con los datos que utiliza el frontend.
+        
+        // 9. Notificar a los dos jugadores con el estado actualizado.
+        const estadoEleccion = {
+            idPartida,
+            jugadores,
+            ambosConfirmaron
+        };
+
+        io.to(`partida_${idPartida}`).emit(
+            "eleccionesActualizadas",
+            estadoEleccion
+        );
+
+        // Avisar que la elección terminó para los dos participantes.
+        if (ambosConfirmaron) {
+            io.to(`partida_${idPartida}`).emit(
+                "eleccionCompleta",
+                { idPartida }
+            );
+        }
+
         return res.status(200).json({
             mensaje: "Elección guardada correctamente",
             idPartida,
@@ -268,6 +313,7 @@ app.post("/partidas/:idPartida/eleccion", async (req, res) => {
             jugadores,
             ambosConfirmaron
         });
+
 
     } catch (error) {
         console.error("Error al guardar la elección:", error);
@@ -748,41 +794,124 @@ app.post("/partidas/:idPartida/listo", async (req, res) => {
 
 io.on("connection", (socket) => {
 
+  
   socket.on("joinRoom", async (data) => {
     try {
-      const idPartida = Number(data.idPartida);
+      // 1. Validar la sesión del usuario.
+      const usuario = socket.request.session?.usuario;
 
-      if (!Number.isInteger(idPartida)) {   //aca verifico que el idPartida sea un numero entero
+      if (!usuario) {
+        socket.emit("errorPartida", {
+          mensaje: "Tenés que iniciar sesión."
+        });
         return;
       }
 
-      const room = `partida_${idPartida}`;    // Creamos un nombre de sala único para cada partida
+      const idUsuario = Number(usuario.id_usuario);
+      const idPartida = Number(data?.idPartida);
 
-      // Metemos al socket en la sala de Socket.IO
-      socket.join(room);
+      if (
+        !Number.isInteger(idPartida) ||
+        idPartida <= 0
+      ) {
+        socket.emit("errorPartida", {
+          mensaje: "El ID de la partida no es válido."
+        });
+        return;
+      }
+
+      // 2. Verificar que el usuario pertenezca a esta partida.
+      const participaciones = await mysql.realizarQuery(
+        `SELECT id_participante
+         FROM ParticipantePartida
+         WHERE id_partida = ${idPartida}
+           AND id_usuario = ${idUsuario}`
+      );
+
+      if (!participaciones || participaciones.length === 0) {
+        socket.emit("errorPartida", {
+          mensaje: "No participás de esta partida."
+        });
+        return;
+      }
+
+      const room = `partida_${idPartida}`;
+
+      // 3. Solo después de validar, permitir entrar a la sala.
+      await socket.join(room);
 
       console.log("Usuario entró a la sala:", room);
 
-      // Buscamos los jugadores actuales de esa partida
+      // 4. Obtener el estado actual de los jugadores.
       const jugadores = await mysql.realizarQuery(
-        `SELECT 
-                    ParticipantePartida.id_participante,
-                    ParticipantePartida.id_usuario,
-                    ParticipantePartida.listo,
-                    Usuario.nombre_usuario
-                 FROM ParticipantePartida
-                 INNER JOIN Usuario
-                    ON ParticipantePartida.id_usuario = Usuario.id_usuario
-                 WHERE ParticipantePartida.id_partida = ${idPartida}`
+        `SELECT
+           pp.id_participante,
+           pp.id_usuario,
+           pp.listo,
+           pp.posicion_actual,
+           pp.turno,
+           u.nombre_usuario
+         FROM ParticipantePartida pp
+         INNER JOIN Usuario u
+           ON pp.id_usuario = u.id_usuario
+         WHERE pp.id_partida = ${idPartida}`
       );
 
-      // Avisamos a todos los jugadores de la sala con .to
+      // Informar el estado de los jugadores en la sala.
       io.to(room).emit("jugadoresActualizados", jugadores);
+
+      // 5. Recuperar también el estado persistido de la elección.
+      const elecciones = await mysql.realizarQuery(
+        `SELECT
+           pp.id_participante,
+           pp.id_usuario,
+           pp.id_club,
+           pp.nombre_leyenda,
+           u.nombre_usuario,
+           c.nombre AS nombre_club,
+           c.liga,
+           CASE
+             WHEN pp.id_club IS NOT NULL
+              AND pp.nombre_leyenda IS NOT NULL
+              AND TRIM(pp.nombre_leyenda) <> ''
+             THEN 1
+             ELSE 0
+           END AS eleccion_confirmada
+         FROM ParticipantePartida pp
+         INNER JOIN Usuario u
+           ON pp.id_usuario = u.id_usuario
+         LEFT JOIN Club c
+           ON pp.id_club = c.id_club
+         WHERE pp.id_partida = ${idPartida}`
+      );
+
+      const ambosConfirmaron =
+        elecciones.length === 2 &&
+        elecciones.every(
+          (j) => Number(j.eleccion_confirmada) === 1
+        );
+
+      // Enviar el estado actual al socket que acaba de conectarse.
+      socket.emit("eleccionesActualizadas", {
+        idPartida,
+        jugadores: elecciones,
+        ambosConfirmaron
+      });
+
+      // Si ya confirmaron los dos, avisar también al que se reconecta.
+      if (ambosConfirmaron) {
+        socket.emit("eleccionCompleta", { idPartida });
+      }
 
     } catch (error) {
       console.error("Error al entrar a la sala de Socket.IO:", error);
+
+      socket.emit("errorPartida", {
+        mensaje: "No se pudo ingresar a la sala de la partida."
+      });
     }
   });
+
 
 
 
