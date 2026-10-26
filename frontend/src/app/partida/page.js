@@ -7,6 +7,7 @@ import { io } from "socket.io-client";
 import Tablero from "@/components/Tablero";
 import Button from "@/components/Button";
 import PanelJugador from "@/components/PanelJugador";
+import Evento from "@/components/Evento";
 
 export default function PartidaPage() {
     const searchParams = useSearchParams();
@@ -15,18 +16,20 @@ export default function PartidaPage() {
     const [idUsuario, setIdUsuario] = useState(null);
     const [jugadores, setJugadores] = useState([]);
     const [resultadoDado, setResultadoDado] = useState(null);
+    const [eventoActual, setEventoActual] = useState(null);
     const [mensaje, setMensaje] = useState("Cargando partida...");
     const [conectado, setConectado] = useState(false);
     const [cargando, setCargando] = useState(true);
-    const socketRef = useRef(null);             //sirve para que el componente no se vuelva a renderizar para cuando haya un cambio en el tablero (o los casilleros)
+    const [mostrarEvento, setMostrarEvento] = useState(false);
+
+    const socketRef = useRef(null);
 
     useEffect(() => {
         if (!idPartida) return;
-
-        let socket;
         let idUsuarioActual = null;
+        let socket;
+        let cancelado = false;
 
-        // Obtener el usuario de la sesión.
         fetch("http://localhost:4000/usuario", {
             credentials: "include"
         })
@@ -34,29 +37,35 @@ export default function PartidaPage() {
                 if (!respuesta.ok) {
                     throw new Error("Tenés que iniciar sesión.");
                 }
+
                 return respuesta.json();
             })
             .then((usuario) => {
+                if (cancelado) return null;
+
                 idUsuarioActual = Number(usuario.id_usuario);
                 setIdUsuario(idUsuarioActual);
 
-                // Cargar posiciones y turnos guardados en MySQL.
                 return fetch(
                     `http://localhost:4000/partidas/${idPartida}/jugadores`,
                     { credentials: "include" }
                 );
             })
             .then((respuesta) => {
+                if (!respuesta || cancelado) return null;
+
                 if (!respuesta.ok) {
                     throw new Error("No se pudieron cargar los jugadores.");
                 }
+
                 return respuesta.json();
             })
             .then((datos) => {
+                if (!datos || cancelado) return;
+
                 setJugadores(datos);
                 setCargando(false);
 
-                // Conectar con Socket.IO.
                 socket = io("http://localhost:4000", {
                     withCredentials: true
                 });
@@ -65,9 +74,11 @@ export default function PartidaPage() {
 
                 socket.on("connect", () => {
                     setConectado(true);
+
                     socket.emit("joinRoom", {
                         idPartida: Number(idPartida)
                     });
+
                     setMensaje("Conectado. ¡A jugar!");
                 });
 
@@ -76,19 +87,37 @@ export default function PartidaPage() {
                     setMensaje("Se perdió la conexión con el servidor.");
                 });
 
-                // Recibir el estado que actualizó el servidor.
                 socket.on("estadoPartidaActualizado", (estado) => {
                     setJugadores(estado.jugadores);
                     setResultadoDado(estado.resultadoDado);
+                    setEventoActual(estado.evento ?? null);
 
                     const jugoYo =
                         Number(estado.idUsuarioQueJugo) === idUsuarioActual;
 
+                    if (estado.turnoPerdido) {
+                        setMostrarEvento(false);
+
+                        setMensaje(
+                            jugoYo
+                                ? "Perdiste este turno por un evento anterior."
+                                : "Tu rival perdió su turno por un evento anterior."
+                        );
+
+                        return;
+                    }
+
                     setMensaje(
                         jugoYo
-                            ? `Sacaste un ${estado.resultadoDado}. Avanzaste una temporada.`
+                            ? `Sacaste un ${estado.resultadoDado}.`
                             : `El rival sacó un ${estado.resultadoDado}.`
                     );
+
+                    if (estado.evento) {
+                        setMostrarEvento(true);
+                    } else {
+                        setMostrarEvento(false);
+                    }
                 });
 
                 socket.on("errorPartida", (error) => {
@@ -96,14 +125,19 @@ export default function PartidaPage() {
                 });
             })
             .catch((error) => {
+                if (cancelado) return;
+
                 setMensaje(error.message);
                 setCargando(false);
             });
 
         return () => {
+            cancelado = true;
+
             if (socket) {
                 socket.disconnect();
             }
+
             socketRef.current = null;
         };
     }, [idPartida]);
@@ -131,12 +165,17 @@ export default function PartidaPage() {
     const miPosicion = Number(miJugador?.posicion_actual ?? 1);
     const posicionRival = Number(rival?.posicion_actual ?? 1);
     const esMiTurno = Boolean(Number(miJugador?.turno));
+
     const ambosListos =
         jugadores.length === 2 &&
         jugadores.every((jugador) => Boolean(Number(jugador.listo)));
 
     if (!idPartida) {
-        return <p className="game-state">No se encontró el identificador de la partida.</p>;
+        return (
+            <p className="game-state">
+                No se encontró el identificador de la partida.
+            </p>
+        );
     }
 
     if (cargando) {
@@ -146,10 +185,13 @@ export default function PartidaPage() {
     return (
         <main className="game-page game-page--partida">
             <h1>El Trayecto</h1>
+
             <p>Partida: {idPartida}</p>
+
             <p>
                 Conexión: {conectado ? "Conectado" : "Desconectado"}
-            </p> 
+            </p>
+
             <PanelJugador
                 titulo="Tu futbolista"
                 jugador={miJugador}
@@ -167,6 +209,7 @@ export default function PartidaPage() {
 
             <section className="game-turno">
                 <h2>Tu turno</h2>
+
                 <p>
                     Resultado del dado:{" "}
                     {resultadoDado ?? "Todavía no lanzado"}
@@ -176,12 +219,58 @@ export default function PartidaPage() {
                     type="button"
                     text="Lanzar dado"
                     onClick={lanzarDado}
-                    disabled={!conectado || !esMiTurno || !ambosListos}
+                    disabled={
+                        !conectado ||
+                        !esMiTurno ||
+                        !ambosListos
+                    }
                 />
 
                 <p>{mensaje}</p>
-                {!esMiTurno && <p>Esperando el turno del rival.</p>}
+
+                {!esMiTurno && (
+                    <p>Esperando el turno del rival.</p>
+                )}
             </section>
+
+            {mostrarEvento && eventoActual && (
+                <section className="evento-resultado">
+                    <Evento evento={eventoActual}>
+                        <p>
+                            Fama: {eventoActual.efecto_fama >= 0 ? "+" : ""}
+                            {eventoActual.efecto_fama}
+                        </p>
+
+                        <p>
+                            Plata: {eventoActual.efecto_plata >= 0 ? "+" : ""}
+                            {eventoActual.efecto_plata}
+                        </p>
+
+                        <p>
+                            Idolatría:{" "}
+                            {eventoActual.efecto_idolatria >= 0 ? "+" : ""}
+                            {eventoActual.efecto_idolatria}
+                        </p>
+
+                        {eventoActual.bloquea_avance && (
+                            <p>¡Este evento impidió avanzar de casilla!</p>
+                        )}
+
+                        {Number(eventoActual.turnos_perdidos) > 0 && (
+                            <p>
+                                Perderás {eventoActual.turnos_perdidos} turno(s)
+                                en futuras rondas.
+                            </p>
+                        )}
+
+                        <Button
+                            type="button"
+                            text="Cerrar evento"
+                            onClick={() => setMostrarEvento(false)}
+                        />
+                    </Evento>
+                </section>
+            )}
         </main>
     );
 }
