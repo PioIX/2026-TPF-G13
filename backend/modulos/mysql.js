@@ -63,3 +63,29 @@ exports.realizarQueryInsert = async function (queryString) {
         }
     }
 }
+
+
+
+exports.realizarTransaccion = async function (callback) {
+    const connection = await mySql.createConnection(SQL_CONFIGURATION_DATA);
+
+    try {
+        await connection.beginTransaction();
+
+        const query = async (sql, parametros = []) => {
+            const [resultado] = await connection.execute(sql, parametros);
+            return resultado;
+        };
+
+        const resultado = await callback(query);
+
+        await connection.commit();
+        return resultado;
+    } catch (error) {
+        await connection.rollback();
+        throw error;
+    } finally {
+        await connection.end();
+    }
+};
+

@@ -1,77 +1,140 @@
+﻿.tablero {
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  width: 100%;
+  max-width: none;
+  flex-direction: column;
+  gap: clamp(10px, 1.2vw, 18px);
+  margin-inline: auto;
+  padding: clamp(14px, 2vw, 26px);
+  overflow: hidden;
+  border: 1px solid rgba(130, 159, 255, 0.24);
+  border-radius: 24px;
+  background:
+    radial-gradient(ellipse at 15% 0%, rgba(23, 105, 255, 0.19), transparent 45%),
+    radial-gradient(ellipse at 90% 100%, rgba(244, 84, 163, 0.14), transparent 42%),
+    linear-gradient(145deg, rgba(12, 16, 39, 0.98), rgba(8, 11, 28, 0.99));
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.4), inset 0 0 45px rgba(128, 80, 255, 0.08);
+}
 
-.tablero {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-    width: 100%;
-    overflow-x: auto;
-    padding: 12px;
-    box-sizing: border-box;
+.tablero::before {
+  position: absolute;
+  z-index: -1;
+  inset: 12px;
+  border: 1px solid rgba(130, 159, 255, 0.14);
+  border-radius: 17px;
+  content: "";
+  pointer-events: none;
 }
 
 .fila-tablero {
-    display: grid;
-    grid-template-columns: repeat(10, minmax(65px, 1fr));
-    gap: 8px;
-    min-width: 730px;
+  display: grid;
+  width: 100%;
+  grid-template-columns: repeat(10, minmax(0, 1fr));
+  gap: clamp(7px, 0.9vw, 12px);
 }
 
 .casillero {
-    min-height: 85px;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    background: rgba(15, 20, 48, 0.94);
-    border: 1px solid rgba(128, 80, 255, 0.6);
-    border-radius: 10px;
-    color: #f3f7ff;
-    transition: background 0.2s, border-color 0.2s;
-    box-sizing: border-box;
+  position: relative;
+  display: flex;
+  min-width: 0;
+  min-height: clamp(90px, 11vh, 128px);
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  overflow: hidden;
+  border: 1px solid rgba(130, 159, 255, 0.24);
+  border-radius: 18px 7px 18px 7px;
+  background:
+    linear-gradient(145deg, rgba(23, 105, 255, 0.13), transparent 72%),
+    linear-gradient(150deg, rgba(20, 25, 54, 0.98), rgba(9, 12, 31, 0.98));
+  color: #f3f7ff;
+  box-shadow: inset 0 1px rgba(255,255,255,0.05), 0 8px 18px rgba(0,0,0,0.2);
+  transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease, background 180ms ease;
 }
 
-.numero-casillero {
-    font-size: 20px;
-    font-weight: bold;
+.casillero:nth-child(3n) {
+  border-radius: 7px 18px 7px 18px;
+  background:
+    linear-gradient(145deg, rgba(128, 80, 255, 0.16), transparent 72%),
+    linear-gradient(150deg, rgba(20, 25, 54, 0.98), rgba(9, 12, 31, 0.98));
 }
 
-.temporada-casillero {
-    font-size: 14px;
-    color: #b4c5ff;
-}
+.casillero:hover { z-index: 1; transform: translateY(-4px); border-color: rgba(87, 146, 255, 0.8); }
+.numero-casillero { color: #fff; font-size: clamp(1.1rem, 1.8vw, 1.6rem); font-weight: 800; line-height: 1; }
+.temporada-casillero { color: #b9c8ff; font-size: clamp(0.65rem, 0.8vw, 0.78rem); letter-spacing: 0.12em; text-transform: uppercase; }
 
 .casillero.activo {
-    background: linear-gradient(145deg, rgba(23, 105, 255, 0.35), rgba(244, 84, 163, 0.24));
-    border-color: #f454a3;
-    box-shadow: 0 0 18px rgba(244, 84, 163, 0.32), 0 0 22px rgba(23, 105, 255, 0.24);
+  z-index: 2;
+  transform: translateY(-5px) scale(1.035);
+  border: 1px solid rgba(255, 139, 199, 0.95);
+  border-radius: 10px 20px 10px 20px;
+  background:
+    radial-gradient(ellipse at 50% 0%, rgba(244, 84, 163, 0.25), transparent 65%),
+    linear-gradient(145deg, rgba(23, 105, 255, 0.36), rgba(128, 80, 255, 0.28) 58%, rgba(244, 84, 163, 0.24));
+  box-shadow: 0 0 0 2px rgba(87, 146, 255, 0.18), 0 0 25px rgba(23, 105, 255, 0.42), 0 0 38px rgba(244, 84, 163, 0.22), inset 0 0 24px rgba(255, 255, 255, 0.06);
 }
 
-.fichas-casillero {
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    gap: 5px;
-    min-height: 22px;
+.casillero.activo::after {
+  position: absolute;
+  inset: 5px;
+  border: 1px solid rgba(255, 139, 199, 0.24);
+  border-radius: 8px 15px 8px 15px;
+  content: "";
+  pointer-events: none;
 }
 
+.fichas-casillero { display: flex; min-height: 28px; align-items: center; justify-content: center; gap: 5px; }
 .ficha-jugador {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 26px;
-    height: 22px;
-    border-radius: 7px;
-    font-size: 11px;
-    font-weight: bold;
+  display: inline-flex;
+  width: clamp(24px, 2.2vw, 34px);
+  height: clamp(24px, 2.2vw, 34px);
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255,255,255,0.78);
+  border-radius: 50% 50% 50% 8px;
+  color: #fff;
+  font-size: clamp(0.58rem, 0.7vw, 0.72rem);
+  font-weight: 800;
+  box-shadow: 0 3px 12px rgba(0,0,0,0.4);
+  transform: rotate(-8deg);
+}
+.ficha-jugador-1 { background: linear-gradient(145deg, #5792ff, #1769ff); }
+.ficha-jugador-2 { background: linear-gradient(145deg, #ff8bc7, #d63891); transform: rotate(8deg); }
+.casillero.activo .ficha-jugador { animation: ficha-pulso 1.8s ease-in-out infinite; }
+
+@keyframes ficha-pulso {
+  0%, 100% { box-shadow: 0 0 10px rgba(87, 146, 255, 0.36), 0 3px 12px rgba(0,0,0,0.4); }
+  50% { box-shadow: 0 0 20px rgba(244, 84, 163, 0.72), 0 3px 12px rgba(0,0,0,0.4); }
 }
 
-.ficha-jugador-1 {
-    background: #2678ff;
-    color: #fff;
+@media (max-width: 1000px) {
+  .fila-tablero { grid-template-columns: repeat(5, minmax(0, 1fr)); }
 }
 
-.ficha-jugador-2 {
-    background: #f454a3;
-    color: #fff;
+@media (max-width: 640px) {
+  .tablero { gap: 10px; padding: 10px; border-radius: 16px; }
+  .fila-tablero { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; }
+  .casillero { min-height: 72px; border-radius: 12px 5px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .casillero { transition: none; }
+  .casillero.activo .ficha-jugador { animation: none; }
+}
+
+/* Etiquetas completas y espacio para que el brillo del casillero no se corte. */
+.tablero { overflow: visible; }
+.temporada-casillero {
+  font-size: clamp(0.58rem, 0.78vw, 0.82rem);
+  letter-spacing: 0.015em;
+  line-height: 1.15;
+  white-space: nowrap;
+}
+.casillero { min-height: clamp(100px, 12vh, 138px); }
+@media (max-width: 640px) {
+  .casillero { min-height: 82px; }
+  .temporada-casillero { font-size: clamp(0.58rem, 2vw, 0.72rem); }
 }
