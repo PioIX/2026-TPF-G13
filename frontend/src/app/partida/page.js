@@ -7,7 +7,6 @@ import { io } from "socket.io-client";
 import Tablero from "@/components/Tablero";
 import Button from "@/components/Button";
 import PanelJugador from "@/components/PanelJugador";
-import Evento from "@/components/Evento";
 import PopupEvento from "@/components/PopupEvento";
 
 export default function PartidaPage() {
@@ -90,7 +89,6 @@ export default function PartidaPage() {
 
                 socket.on("estadoPartidaActualizado", (estado) => {
                     setJugadores(estado.jugadores);
-                    setResultadoDado(estado.resultadoDado);
 
                     const jugoYo =
                         Number(estado.idUsuarioQueJugo) === idUsuarioActual;
@@ -104,6 +102,10 @@ export default function PartidaPage() {
                         setMostrarEvento(false);
                     }
 
+                    if (jugoYo) {
+                        setResultadoDado(estado.resultadoDado);
+                    }
+
                     if (estado.turnoPerdido) {
                         setMensaje(
                             jugoYo
@@ -115,7 +117,7 @@ export default function PartidaPage() {
 
                     setMensaje(
                         jugoYo
-                            ? `Sacaste un ${estado.resultadoDado}.`
+                            ? "Tu turno se actualizó."
                             : `El rival sacó un ${estado.resultadoDado}.`
                     );
                 });
@@ -192,15 +194,17 @@ export default function PartidaPage() {
                 Conexión: {conectado ? "Conectado" : "Desconectado"}
             </p>
 
-            <PanelJugador
-                titulo="Tu futbolista"
-                jugador={miJugador}
-            />
+            <div className="game-jugadores">
+                <PanelJugador
+                    titulo="Tu futbolista"
+                    jugador={miJugador}
+                />
 
-            <PanelJugador
-                titulo="Rival"
-                jugador={rival}
-            />
+                <PanelJugador
+                    titulo="Rival"
+                    jugador={rival}
+                />
+            </div>
 
             <Tablero
                 posicionJugador1={miPosicion}
