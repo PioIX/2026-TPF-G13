@@ -8,6 +8,7 @@ import Tablero from "@/components/Tablero";
 import Button from "@/components/Button";
 import PanelJugador from "@/components/PanelJugador";
 import Evento from "@/components/Evento";
+import PopupEvento from "@/components/PopupEvento";
 
 export default function PartidaPage() {
     const searchParams = useSearchParams();
@@ -90,20 +91,25 @@ export default function PartidaPage() {
                 socket.on("estadoPartidaActualizado", (estado) => {
                     setJugadores(estado.jugadores);
                     setResultadoDado(estado.resultadoDado);
-                    setEventoActual(estado.evento ?? null);
 
                     const jugoYo =
                         Number(estado.idUsuarioQueJugo) === idUsuarioActual;
 
-                    if (estado.turnoPerdido) {
+                    // El popup solo aparece para quien jugó.
+                    if (jugoYo && estado.evento) {
+                        setEventoActual(estado.evento);
+                        setMostrarEvento(true);
+                    } else {
+                        setEventoActual(null);
                         setMostrarEvento(false);
+                    }
 
+                    if (estado.turnoPerdido) {
                         setMensaje(
                             jugoYo
                                 ? "Perdiste este turno por un evento anterior."
                                 : "Tu rival perdió su turno por un evento anterior."
                         );
-
                         return;
                     }
 
@@ -112,12 +118,6 @@ export default function PartidaPage() {
                             ? `Sacaste un ${estado.resultadoDado}.`
                             : `El rival sacó un ${estado.resultadoDado}.`
                     );
-
-                    if (estado.evento) {
-                        setMostrarEvento(true);
-                    } else {
-                        setMostrarEvento(false);
-                    }
                 });
 
                 socket.on("errorPartida", (error) => {
@@ -233,44 +233,10 @@ export default function PartidaPage() {
                 )}
             </section>
 
-            {mostrarEvento && eventoActual && (
-                <section className="evento-resultado">
-                    <Evento evento={eventoActual}>
-                        <p>
-                            Fama: {eventoActual.efecto_fama >= 0 ? "+" : ""}
-                            {eventoActual.efecto_fama}
-                        </p>
-
-                        <p>
-                            Plata: {eventoActual.efecto_plata >= 0 ? "+" : ""}
-                            {eventoActual.efecto_plata}
-                        </p>
-
-                        <p>
-                            Idolatría:{" "}
-                            {eventoActual.efecto_idolatria >= 0 ? "+" : ""}
-                            {eventoActual.efecto_idolatria}
-                        </p>
-
-                        {eventoActual.bloquea_avance && (
-                            <p>¡Este evento impidió avanzar de casilla!</p>
-                        )}
-
-                        {Number(eventoActual.turnos_perdidos) > 0 && (
-                            <p>
-                                Perderás {eventoActual.turnos_perdidos} turno(s)
-                                en futuras rondas.
-                            </p>
-                        )}
-
-                        <Button
-                            type="button"
-                            text="Cerrar evento"
-                            onClick={() => setMostrarEvento(false)}
-                        />
-                    </Evento>
-                </section>
-            )}
+            <PopupEvento
+                evento={mostrarEvento ? eventoActual : null}
+                onCerrar={() => setMostrarEvento(false)}
+            />
         </main>
     );
 }
