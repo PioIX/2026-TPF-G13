@@ -104,6 +104,7 @@ export default function PartidaPage() {
                         setMostrarEvento(false);
                     }
 
+                    if (estado.turnoPerdido) {
                         setMensaje(
                             jugoYo
                                 ? "Perdiste este turno por un evento anterior."
