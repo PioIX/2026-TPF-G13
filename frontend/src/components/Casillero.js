@@ -23,7 +23,7 @@ export default function Casillero(props) {
             </span>
 
             <span className="temporada-casillero">
-                T.{props.temporada}
+                Temporada {props.temporada}
             </span>
 
             <div className="fichas-casillero">
