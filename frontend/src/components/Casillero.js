@@ -19,7 +19,7 @@ export default function Casillero(props) {
                 : ""
         }`}>
             <span className="numero-casillero">
-                {props.numero}
+                {2025 + props.temporada}
             </span>
 
             <span className="temporada-casillero">

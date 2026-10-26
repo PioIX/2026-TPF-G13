@@ -442,10 +442,18 @@ main.game-page {
   background: rgba(255, 255, 255, 0.035);
 }
 
+.game-page--partida .game-jugadores {
+  display: grid;
+  width: 100%;
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
 .game-page--partida .panel-jugador {
-  flex: 1 1 280px;
   min-width: 0;
-  padding: 20px;
+  padding: clamp(16px, 2vw, 24px);
+  text-align: center;
   border: 1px solid var(--color-line);
   border-radius: 9px;
   background: var(--color-surface);
@@ -459,13 +467,48 @@ main.game-page {
 }
 
 .game-page--partida .panel-jugador h3 {
-  margin: 0 0 14px;
+  margin: 0 0 20px;
   color: var(--color-rose-bright);
-  font-size: 2.1rem;
+  font-size: clamp(1.5rem, 2.5vw, 2.1rem);
+  overflow-wrap: anywhere;
+}
+
+.game-page--partida .panel-jugador-datos {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+}
+
+.game-page--partida .panel-jugador-datos > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  justify-content: center;
+  gap: 6px;
+  padding: 12px 8px;
+  border: 1px solid var(--color-line);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.035);
+  overflow-wrap: anywhere;
+}
+
+.game-page--partida .panel-jugador-datos dt {
+  color: var(--color-muted);
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+.game-page--partida .panel-jugador-datos dd {
+  margin: 0;
+  color: var(--color-text);
+  font-size: 0.95rem;
+  font-weight: 700;
+  line-height: 1.4;
 }
 
 .game-page--partida .panel-jugador p {
-  margin: 7px 0;
+  margin: 14px 0 0;
   font-size: 0.9rem;
 }
 
@@ -506,9 +549,19 @@ main.game-page {
   opacity: 0.6;
 }
 
+@media (max-width: 760px) {
+  .game-page--partida .game-jugadores {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 @media (max-width: 640px) {
   .game-page--partida {
     gap: 14px;
+  }
+
+  .game-page--partida .panel-jugador-datos {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .game-page--partida .tablero {
