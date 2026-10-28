@@ -963,6 +963,7 @@ io.on("connection", (socket) => {
                         id_participante,
                         id_usuario,
                         posicion_actual,
+                        id_seleccion,
                         turno,
                         listo,
                         turnos_pendientes_perdidos
@@ -1056,7 +1057,9 @@ io.on("connection", (socket) => {
           // de una casilla, no un avance equivalente al número.
           const resultadoDado = Math.floor(Math.random() * 6) + 1;
 
-          // Buscamos eventos habilitados para el sorteo.
+          // Usamos la posición del tablero como temporada (una posición por turno).
+          // Peso es el peso relativo dentro de los eventos elegibles, no un porcentaje fijo.
+          // Los eventos de Selección se habilitan desde la temporada 5.
           const eventos = await query(
             `SELECT
                         id_evento,
@@ -1070,34 +1073,21 @@ io.on("connection", (socket) => {
                         bloquea_avance,
                         turnos_perdidos
                      FROM Evento
-                     WHERE peso > 0`
+                     WHERE peso > 0
+                       AND NOT (
+                         (LOWER(categoria) IN ('selección', 'seleccion') OR id_evento IN (25, 26, 27, 28, 29, 30))
+                         AND ? < 5
+                       )`,
+            [posicionActual]
           );
 
           if (eventos.length === 0) {
             return {
-              error: "No hay eventos habilitados en la base de datos."
+              error: "No hay eventos elegibles con peso mayor a cero para esta etapa."
             };
           }
 
-          // Sorteo ponderado: un peso mayor aumenta la probabilidad.
-          const pesoTotal = eventos.reduce(
-            (total, evento) => total + Number(evento.peso),
-            0
-          );
-
-          let sorteo = Math.random() * pesoTotal;
-          let evento = eventos[eventos.length - 1];
-
-          for (const candidato of eventos) {
-            sorteo -= Number(candidato.peso);
-
-            if (sorteo < 0) {
-              evento = candidato;
-              break;
-            }
-          }
-
-          const posicionActual = Number(jugador.posicion_actual);
+          const evento = sortearEventoPonderado(eventos);
           const bloqueaAvance = Boolean(
             Number(evento.bloquea_avance)
           );
@@ -1238,4 +1228,22 @@ async function obtenerJugadores(query, idPartida) {
          WHERE pp.id_partida = ?`,
         [idPartida]
     );
+}
+
+/** Sortea un evento usando peso como ponderación relativa entre los elegibles. */
+function sortearEventoPonderado(eventos) {
+  const elegibles = eventos
+    .map((evento) => ({ ...evento, peso: Number(evento.peso) }))
+    .filter((evento) => Number.isFinite(evento.peso) && evento.peso > 0);
+  const pesoTotal = elegibles.reduce((total, evento) => total + evento.peso, 0);
+
+  if (pesoTotal <= 0) throw new Error("No hay eventos con peso válido para sortear.");
+
+  let sorteo = Math.random() * pesoTotal;
+  for (const evento of elegibles) {
+    sorteo -= evento.peso;
+    if (sorteo < 0) return evento;
+  }
+
+  return elegibles[elegibles.length - 1];
 }
