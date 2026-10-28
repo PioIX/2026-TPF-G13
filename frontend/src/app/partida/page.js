@@ -24,8 +24,14 @@ export default function PartidaPage() {
     const [mostrarEvento, setMostrarEvento] = useState(false);
     const [rendimientoActual, setRendimientoActual] = useState(null);
     const [mostrarRendimiento, setMostrarRendimiento] = useState(false);
+    const [tirandoDado, setTirandoDado] = useState(false);
+    const [resultadoMostrado, setResultadoMostrado] = useState(null);
 
     const socketRef = useRef(null);
+    const temporizadorTiradaRef = useRef(null);
+    const temporizadorEventoRef = useRef(null);
+    const inicioTiradaRef = useRef(null);
+    const eventoPendienteRef = useRef(null);
 
     useEffect(() => {
         if (!idPartida) return;
@@ -91,30 +97,48 @@ export default function PartidaPage() {
                 });
 
                 socket.on("estadoPartidaActualizado", (estado) => {
+                    if (Number(estado.idUsuarioQueJugo) === idUsuarioActual) {
+                        const tiempoRestante = Math.max(
+                            0,
+                            3000 - (Date.now() - (inicioTiradaRef.current ?? 0))
+                        );
+                        if (temporizadorTiradaRef.current) {
+                            clearTimeout(temporizadorTiradaRef.current);
+                        }
+                        temporizadorTiradaRef.current = setTimeout(() => {
+                            setTirandoDado(false);
+                            temporizadorTiradaRef.current = null;
+                            inicioTiradaRef.current = null;
+                            setResultadoMostrado(estado.resultadoDado);
+                            temporizadorEventoRef.current = setTimeout(() => {
+                                if (eventoPendienteRef.current) {
+                                    setEventoActual(eventoPendienteRef.current);
+                                    setMostrarEvento(true);
+                                    eventoPendienteRef.current = null;
+                                }
+                                temporizadorEventoRef.current = null;
+                            }, 1500);
+                        }, tiempoRestante);
+                    }
+
                     setJugadores(estado.jugadores);
                     const jugoYo =
                         Number(estado.idUsuarioQueJugo) === Number(idUsuarioActual);
 
-                    setJugadores(estado.jugadores);
+                    // El evento se presenta solo después de mostrar la cara final del dado.
+                    if (jugoYo && estado.evento) {
+                        eventoPendienteRef.current = estado.evento;
+                    } else if (!jugoYo) {
+                        eventoPendienteRef.current = null;
+                        setEventoActual(null);
+                        setMostrarEvento(false);
+                    }
 
                     if (jugoYo) {
                         setResultadoDado(estado.resultadoDado);
-
-                        setRendimientoActual(estado.rendimiento ?? null);
-                        setMostrarRendimiento(false);
-
-                        if (estado.evento) {
-                            setEventoActual(estado.evento);
-                            setMostrarEvento(true);
-                        } else {
-                            setEventoActual(null);
-                            setMostrarEvento(false);
-                        }
-                    } else {
-                        setEventoActual(null);
-                        setMostrarEvento(false);
-                        setRendimientoActual(null);
-                        setMostrarRendimiento(false);
+                    } else if (estado.evento) {
+                        setEventoActual(estado.evento);
+                        setMostrarEvento(true);
                     }
 
                     if (estado.turnoPerdido) {
@@ -147,6 +171,15 @@ export default function PartidaPage() {
         return () => {
             cancelado = true;
 
+            if (temporizadorTiradaRef.current) {
+                clearTimeout(temporizadorTiradaRef.current);
+                temporizadorTiradaRef.current = null;
+            }
+            if (temporizadorEventoRef.current) {
+                clearTimeout(temporizadorEventoRef.current);
+                temporizadorEventoRef.current = null;
+            }
+
             if (socket) {
                 socket.disconnect();
             }
@@ -160,7 +193,17 @@ export default function PartidaPage() {
             return;
         }
 
-        setMensaje("Procesando turno...");
+        if (tirandoDado) return;
+
+        inicioTiradaRef.current = Date.now();
+        setResultadoMostrado(null);
+        setTirandoDado(true);
+        setMensaje("El dado está girando...");
+        temporizadorTiradaRef.current = setTimeout(() => {
+            setTirandoDado(false);
+            temporizadorTiradaRef.current = null;
+            inicioTiradaRef.current = null;
+        }, 3000);
 
         socketRef.current.emit("jugarTurno", {
             idPartida: Number(idPartida)
@@ -196,7 +239,7 @@ export default function PartidaPage() {
     }
 
     return (
-        <main className="game-page game-page--partida">
+        <main className={`game-page game-page--partida${tirandoDado ? " game-page--tirando" : ""}`}>
             <h1>El Trayecto</h1>
 
             <div className="game-jugadores">
@@ -219,6 +262,13 @@ export default function PartidaPage() {
             <section className="game-turno">
                 <h2>Tu turno</h2>
 
+                <div className={`dado-visual${tirandoDado ? " dado-visual--animando" : ""}`} aria-live="polite" aria-label={tirandoDado ? "El dado está girando" : `Resultado del dado: ${resultadoMostrado ?? "todavía no lanzado"}`}>
+                    <span className={`dado-visual-cara-dibujo${tirandoDado || !resultadoMostrado ? " dado-visual-cara-dibujo--oculta" : ""}`} aria-hidden="true">
+                        {resultadoMostrado ? <span className={`dado-puntos dado-puntos--${resultadoMostrado}`} /> : null}
+                    </span>
+                    <span className="dado-visual-cara dado-visual-cara--movimiento" aria-hidden="true">⚄</span>
+                </div>
+
                 <p>
                     Resultado del dado:{" "}
                     {resultadoDado ?? "Todavía no lanzado"}
@@ -230,6 +280,7 @@ export default function PartidaPage() {
                     onClick={lanzarDado}
                     disabled={
                         !conectado ||
+                        tirandoDado ||
                         !esMiTurno ||
                         !ambosListos
                     }
