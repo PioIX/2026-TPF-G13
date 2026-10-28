@@ -1,4 +1,3 @@
-
 .popup-evento-overlay {
     position: fixed;
     z-index: 1000;
@@ -15,6 +14,7 @@
     animation: popup-evento-fondo 220ms ease-out both;
 }
 
+/* Contenedor principal */
 .popup-evento {
     position: relative;
     width: min(560px, 100%);
@@ -28,10 +28,14 @@
         radial-gradient(ellipse at 100% 100%, rgba(244, 84, 163, 0.15), transparent 48%),
         linear-gradient(145deg, rgba(17, 22, 49, 0.99), rgba(7, 10, 27, 0.99));
     color: #f3f7ff;
-    box-shadow: 0 28px 90px rgba(0, 0, 0, 0.58), 0 0 46px rgba(23, 105, 255, 0.18), inset 0 1px rgba(255, 255, 255, 0.07);
+    box-shadow:
+        0 28px 90px rgba(0, 0, 0, 0.58),
+        0 0 46px rgba(23, 105, 255, 0.18),
+        inset 0 1px rgba(255, 255, 255, 0.07);
     animation: popup-evento-aparecer 420ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 
+/* Borde decorativo interior */
 .popup-evento::before {
     position: absolute;
     inset: 8px;
@@ -41,26 +45,29 @@
     pointer-events: none;
 }
 
-.popup-evento > .evento {
+/* Mantiene el contenido sobre el borde decorativo */
+.popup-evento>.evento {
     position: relative;
 }
 
+/* Título del evento: el color se define por categoría */
 .popup-evento h2 {
     margin: 0 0 14px;
-    color: #fff;
+    color: #f3f7ff;
     font-size: clamp(1.8rem, 6vw, 2.5rem);
     line-height: 1.1;
     text-align: center;
     text-shadow: 0 0 24px rgba(87, 146, 255, 0.46);
 }
 
-.popup-evento > .evento > p {
+/* Descripción y categoría */
+.popup-evento>.evento>p {
     color: #c7d3ee;
     line-height: 1.65;
     text-align: center;
 }
 
-.popup-evento > .evento > p:nth-of-type(2) {
+.popup-evento>.evento>p:nth-of-type(2) {
     display: table;
     margin: 18px auto;
     padding: 7px 14px;
@@ -74,6 +81,7 @@
     text-transform: uppercase;
 }
 
+/* Efectos del evento */
 .popup-evento-efectos {
     margin-top: 24px;
     padding: 18px;
@@ -105,17 +113,21 @@
     border-bottom: 0;
 }
 
+/* Advertencias */
 .popup-evento-advertencia {
     margin: 12px 0 0;
     padding: 12px 14px;
     border: 1px solid rgba(255, 139, 199, 0.32);
     border-radius: 8px;
-    background: linear-gradient(110deg, rgba(244, 84, 163, 0.12), rgba(128, 80, 255, 0.12));
+    background: linear-gradient(110deg,
+            rgba(244, 84, 163, 0.12),
+            rgba(128, 80, 255, 0.12));
     color: #ffc1df;
     line-height: 1.5;
     text-align: center;
 }
 
+/* Botón de continuar */
 .popup-evento-acciones {
     display: flex;
     justify-content: center;
@@ -148,9 +160,167 @@
     outline-offset: 3px;
 }
 
+/* =========================================
+   COLORES SEGÚN LA CATEGORÍA DEL EVENTO
+   ========================================= */
+
+/* Positivo: verde */
+.popup-evento--positivo {
+    border-color: rgba(74, 222, 128, 0.8);
+    background:
+        radial-gradient(ellipse at 15% 0%, rgba(34, 197, 94, 0.32), transparent 55%),
+        radial-gradient(ellipse at 100% 100%, rgba(74, 222, 128, 0.18), transparent 50%),
+        linear-gradient(145deg, rgba(12, 48, 38, 0.99), rgba(5, 19, 25, 0.99));
+    box-shadow:
+        0 28px 90px rgba(0, 0, 0, 0.58),
+        0 0 38px rgba(34, 197, 94, 0.22),
+        inset 0 1px rgba(255, 255, 255, 0.08);
+}
+
+/* Selección: amarillo dorado */
+.popup-evento--seleccion {
+    border-color: rgba(250, 204, 21, 0.85);
+    background:
+        radial-gradient(ellipse at 15% 0%, rgba(250, 204, 21, 0.30), transparent 55%),
+        radial-gradient(ellipse at 100% 100%, rgba(245, 158, 11, 0.18), transparent 50%),
+        linear-gradient(145deg, rgba(58, 44, 13, 0.99), rgba(24, 18, 8, 0.99));
+    box-shadow:
+        0 28px 90px rgba(0, 0, 0, 0.58),
+        0 0 38px rgba(250, 204, 21, 0.20),
+        inset 0 1px rgba(255, 255, 255, 0.08);
+}
+
+/* Lesión: naranja */
+.popup-evento--lesion {
+    border-color: rgba(251, 146, 60, 0.85);
+    background:
+        radial-gradient(ellipse at 15% 0%, rgba(249, 115, 22, 0.30), transparent 55%),
+        radial-gradient(ellipse at 100% 100%, rgba(234, 88, 12, 0.18), transparent 50%),
+        linear-gradient(145deg, rgba(58, 31, 15, 0.99), rgba(24, 13, 10, 0.99));
+    box-shadow:
+        0 28px 90px rgba(0, 0, 0, 0.58),
+        0 0 38px rgba(249, 115, 22, 0.20),
+        inset 0 1px rgba(255, 255, 255, 0.08);
+}
+
+/* Cambio de club: azul */
+.popup-evento--cambio-club {
+    border-color: rgba(96, 165, 250, 0.85);
+    background:
+        radial-gradient(ellipse at 15% 0%, rgba(37, 99, 235, 0.34), transparent 55%),
+        radial-gradient(ellipse at 100% 100%, rgba(14, 165, 233, 0.18), transparent 50%),
+        linear-gradient(145deg, rgba(15, 34, 69, 0.99), rgba(7, 12, 29, 0.99));
+    box-shadow:
+        0 28px 90px rgba(0, 0, 0, 0.58),
+        0 0 38px rgba(37, 99, 235, 0.24),
+        inset 0 1px rgba(255, 255, 255, 0.08);
+}
+
+/* Aleatorio: violeta */
+.popup-evento--aleatorio {
+    border-color: rgba(192, 132, 252, 0.85);
+    background:
+        radial-gradient(ellipse at 15% 0%, rgba(147, 51, 234, 0.32), transparent 55%),
+        radial-gradient(ellipse at 100% 100%, rgba(168, 85, 247, 0.18), transparent 50%),
+        linear-gradient(145deg, rgba(43, 23, 66, 0.99), rgba(15, 9, 29, 0.99));
+    box-shadow:
+        0 28px 90px rgba(0, 0, 0, 0.58),
+        0 0 38px rgba(168, 85, 247, 0.22),
+        inset 0 1px rgba(255, 255, 255, 0.08);
+}
+
+/* Negativo: rojo */
+.popup-evento--negativo {
+    border-color: rgba(248, 113, 113, 0.85);
+    background:
+        radial-gradient(ellipse at 15% 0%, rgba(220, 38, 38, 0.34), transparent 55%),
+        radial-gradient(ellipse at 100% 100%, rgba(239, 68, 68, 0.18), transparent 50%),
+        linear-gradient(145deg, rgba(62, 19, 27, 0.99), rgba(24, 8, 19, 0.99));
+    box-shadow:
+        0 28px 90px rgba(0, 0, 0, 0.58),
+        0 0 38px rgba(239, 68, 68, 0.22),
+        inset 0 1px rgba(255, 255, 255, 0.08);
+}
+
+/* Categoría desconocida: estilo original */
+.popup-evento--neutro {
+    border-color: rgba(130, 159, 255, 0.45);
+    background:
+        radial-gradient(ellipse at 12% 0%, rgba(23, 105, 255, 0.2), transparent 52%),
+        radial-gradient(ellipse at 100% 100%, rgba(244, 84, 163, 0.15), transparent 48%),
+        linear-gradient(145deg, rgba(17, 22, 49, 0.99), rgba(7, 10, 27, 0.99));
+}
+
+/* Borde interior a juego con la categoría */
+.popup-evento--positivo::before {
+    border-color: rgba(74, 222, 128, 0.24);
+}
+
+.popup-evento--seleccion::before {
+    border-color: rgba(250, 204, 21, 0.24);
+}
+
+.popup-evento--lesion::before {
+    border-color: rgba(251, 146, 60, 0.24);
+}
+
+.popup-evento--cambio-club::before {
+    border-color: rgba(96, 165, 250, 0.24);
+}
+
+.popup-evento--aleatorio::before {
+    border-color: rgba(192, 132, 252, 0.24);
+}
+
+.popup-evento--negativo::before {
+    border-color: rgba(248, 113, 113, 0.24);
+}
+
+/* Título a juego con la categoría */
+.popup-evento--positivo .evento h2 {
+    color: #4ade80 !important;
+    text-shadow: 0 0 14px rgba(74, 222, 128, 0.4);
+}
+
+.popup-evento--seleccion .evento h2 {
+    color: #facc15 !important;
+    text-shadow: 0 0 14px rgba(250, 204, 21, 0.4);
+}
+
+.popup-evento--lesion .evento h2 {
+    color: #fb923c !important;
+    text-shadow: 0 0 14px rgba(251, 146, 60, 0.4);
+}
+
+.popup-evento--cambio-club .evento h2 {
+    color: #60a5fa !important;
+    text-shadow: 0 0 14px rgba(96, 165, 250, 0.4);
+}
+
+.popup-evento--aleatorio .evento h2 {
+    color: #c084fc !important;
+    text-shadow: 0 0 14px rgba(192, 132, 252, 0.4);
+}
+
+.popup-evento--negativo .evento h2 {
+    color: #f87171 !important;
+    text-shadow: 0 0 14px rgba(248, 113, 113, 0.4);
+}
+
+.popup-evento--neutro .evento h2 {
+    color: #f3f7ff !important;
+    text-shadow: none;
+}
+
+/* Animaciones */
 @keyframes popup-evento-fondo {
-    from { opacity: 0; }
-    to { opacity: 1; }
+    from {
+        opacity: 0;
+    }
+
+    to {
+        opacity: 1;
+    }
 }
 
 @keyframes popup-evento-aparecer {
@@ -158,12 +328,14 @@
         opacity: 0;
         transform: translateY(18px) scale(0.96);
     }
+
     to {
         opacity: 1;
         transform: translateY(0) scale(1);
     }
 }
 
+/* Adaptación para celulares */
 @media (max-width: 480px) {
     .popup-evento-overlay {
         padding: 12px;
@@ -175,7 +347,9 @@
     }
 }
 
+/* Respeta la preferencia de reducir movimiento */
 @media (prefers-reduced-motion: reduce) {
+
     .popup-evento-overlay,
     .popup-evento {
         animation: none;
@@ -184,4 +358,34 @@
     .popup-evento-acciones button {
         transition: none;
     }
+}
+
+
+/* Color del texto según la categoría del evento */
+.popup-evento--positivo .evento-categoria {
+    color: #4ade80 !important;
+}
+
+.popup-evento--seleccion .evento-categoria {
+    color: #facc15 !important;
+}
+
+.popup-evento--lesion .evento-categoria {
+    color: #fb923c !important;
+}
+
+.popup-evento--cambio-club .evento-categoria {
+    color: #60a5fa !important;
+}
+
+.popup-evento--aleatorio .evento-categoria {
+    color: #c084fc !important;
+}
+
+.popup-evento--negativo .evento-categoria {
+    color: #f87171 !important;
+}
+    
+.popup-evento--neutro .evento-categoria {
+    color: #f3f7ff !important;
 }
