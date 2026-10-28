@@ -1111,23 +1111,44 @@ io.on("connection", (socket) => {
             Number(evento.turnos_perdidos) || 0
           );
 
+          const golesNuevos = Math.random() < 0.20 ? 1 : 0;
+          const asistenciasNuevas = Math.random() < 0.25 ? 1 : 0;
+
+          const notaBase = 5 + Math.random() * 2;
+
+          const notaRendimiento = Math.min(
+            10,
+            Number(
+              (
+                notaBase +
+                golesNuevos * 2 +
+                asistenciasNuevas * 1.5
+              ).toFixed(1)
+            )
+          );
+
           // Actualizamos posición, estadísticas y turnos pendientes.
+
           await query(
             `UPDATE ParticipantePartida
-                     SET
-                        posicion_actual = ?,
-                        fama = fama + ?,
-                        plata = plata + ?,
-                        idolatria = idolatria + ?,
-                        turnos_pendientes_perdidos =
-                            turnos_pendientes_perdidos + ?
-                     WHERE id_partida = ?
-                       AND id_usuario = ?`,
+     SET
+        posicion_actual = ?,
+        fama = GREATEST(0, fama + ?),
+        plata = GREATEST(0, plata + ?),
+        idolatria = GREATEST(0, idolatria + ?),
+        goles = COALESCE(goles, 0) + ?,
+        asistencias = COALESCE(asistencias, 0) + ?,
+        turnos_pendientes_perdidos =
+            turnos_pendientes_perdidos + ?
+     WHERE id_partida = ?
+       AND id_usuario = ?`,
             [
               nuevaPosicion,
               Number(evento.efecto_fama) || 0,
               Number(evento.efecto_plata) || 0,
               Number(evento.efecto_idolatria) || 0,
+              golesNuevos,
+              asistenciasNuevas,
               turnosPerdidos,
               idPartida,
               idUsuario
@@ -1157,7 +1178,15 @@ io.on("connection", (socket) => {
             resultadoDado,
             idUsuarioQueJugo: idUsuario,
             idParticipanteQueJugo: jugador.id_participante,
+
+            rendimiento: {
+              goles: golesNuevos,
+              asistencias: asistenciasNuevas,
+              nota: notaRendimiento
+            },
+
             jugadores: jugadoresActualizados,
+
             evento: {
               id_evento: evento.id_evento,
               nombre: evento.nombre,
@@ -1165,8 +1194,7 @@ io.on("connection", (socket) => {
               categoria: evento.categoria,
               efecto_fama: Number(evento.efecto_fama) || 0,
               efecto_plata: Number(evento.efecto_plata) || 0,
-              efecto_idolatria:
-                Number(evento.efecto_idolatria) || 0,
+              efecto_idolatria: Number(evento.efecto_idolatria) || 0,
               bloquea_avance: bloqueaAvance,
               turnos_perdidos: turnosPerdidos,
               posicion_resultante: nuevaPosicion
@@ -1206,8 +1234,8 @@ io.on("connection", (socket) => {
 
 
 async function obtenerJugadores(query, idPartida) {
-    return await query(
-        `SELECT
+  return await query(
+    `SELECT
             pp.id_participante,
             pp.id_partida,
             pp.id_usuario,
@@ -1236,6 +1264,6 @@ async function obtenerJugadores(query, idPartida) {
          LEFT JOIN Titulo t
             ON pp.id_titulo = t.id_titulo
          WHERE pp.id_partida = ?`,
-        [idPartida]
-    );
+    [idPartida]
+  );
 }

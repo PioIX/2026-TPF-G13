@@ -8,6 +8,7 @@ import Tablero from "@/components/Tablero";
 import Button from "@/components/Button";
 import PanelJugador from "@/components/PanelJugador";
 import PopupEvento from "@/components/PopupEvento";
+import PopupRendimiento from "@/components/PopupRendimiento";
 
 export default function PartidaPage() {
     const searchParams = useSearchParams();
@@ -21,6 +22,8 @@ export default function PartidaPage() {
     const [conectado, setConectado] = useState(false);
     const [cargando, setCargando] = useState(true);
     const [mostrarEvento, setMostrarEvento] = useState(false);
+    const [rendimientoActual, setRendimientoActual] = useState(null);
+    const [mostrarRendimiento, setMostrarRendimiento] = useState(false);
 
     const socketRef = useRef(null);
 
@@ -89,21 +92,29 @@ export default function PartidaPage() {
 
                 socket.on("estadoPartidaActualizado", (estado) => {
                     setJugadores(estado.jugadores);
-
                     const jugoYo =
-                        Number(estado.idUsuarioQueJugo) === idUsuarioActual;
+                        Number(estado.idUsuarioQueJugo) === Number(idUsuarioActual);
 
-                    // El popup solo aparece para quien jugó.
-                    if (jugoYo && estado.evento) {
-                        setEventoActual(estado.evento);
-                        setMostrarEvento(true);
-                    } else {
-                        setEventoActual(null);
-                        setMostrarEvento(false);
-                    }
+                    setJugadores(estado.jugadores);
 
                     if (jugoYo) {
                         setResultadoDado(estado.resultadoDado);
+
+                        setRendimientoActual(estado.rendimiento ?? null);
+                        setMostrarRendimiento(false);
+
+                        if (estado.evento) {
+                            setEventoActual(estado.evento);
+                            setMostrarEvento(true);
+                        } else {
+                            setEventoActual(null);
+                            setMostrarEvento(false);
+                        }
+                    } else {
+                        setEventoActual(null);
+                        setMostrarEvento(false);
+                        setRendimientoActual(null);
+                        setMostrarRendimiento(false);
                     }
 
                     if (estado.turnoPerdido) {
@@ -188,12 +199,6 @@ export default function PartidaPage() {
         <main className="game-page game-page--partida">
             <h1>El Trayecto</h1>
 
-            <p>Partida: {idPartida}</p>
-
-            <p>
-                Conexión: {conectado ? "Conectado" : "Desconectado"}
-            </p>
-
             <div className="game-jugadores">
                 <PanelJugador
                     titulo="Tu futbolista"
@@ -237,10 +242,23 @@ export default function PartidaPage() {
                 )}
             </section>
 
+
             <PopupEvento
                 evento={mostrarEvento ? eventoActual : null}
-                onCerrar={() => setMostrarEvento(false)}
+                onContinuar={() => {
+                    setMostrarEvento(false);
+
+                    if (rendimientoActual) {
+                        setMostrarRendimiento(true);
+                    }
+                }}
             />
+
+            <PopupRendimiento
+                rendimiento={mostrarRendimiento ? rendimientoActual : null}
+                onCerrar={() => setMostrarRendimiento(false)}
+            />
+
         </main>
     );
 }
