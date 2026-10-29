@@ -98,6 +98,9 @@ export default function PartidaPage() {
 
                 socket.on("estadoPartidaActualizado", (estado) => {
                     if (Number(estado.idUsuarioQueJugo) === idUsuarioActual) {
+                        setRendimientoActual(estado.rendimiento ?? null);
+                    }
+                    if (Number(estado.idUsuarioQueJugo) === idUsuarioActual) {
                         const tiempoRestante = Math.max(
                             0,
                             3000 - (Date.now() - (inicioTiradaRef.current ?? 0))
