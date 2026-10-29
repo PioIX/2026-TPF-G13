@@ -1001,6 +1001,13 @@ io.on("connection", (socket) => {
             };
           }
 
+          // Posición actual del jugador en el tablero, usada como
+          // temporada para decidir qué eventos son elegibles.
+          const posicionActual = Math.max(
+            1,
+            Number(jugador.posicion_actual) || 1
+          );
+
           const rival = jugadores.find(
             (j) => Number(j.id_usuario) !== idUsuario
           );
@@ -1101,23 +1108,61 @@ io.on("connection", (socket) => {
             Number(evento.turnos_perdidos) || 0
           );
 
+          const temporada = Math.min(20, Math.max(1, posicionActual));
+
+          const probabilidadGol = Math.min(
+            0.90,
+            0.30 + (temporada - 1) * 0.03
+          );
+
+          const probabilidadAsistencia = Math.min(
+            0.85,
+            0.35 + (temporada - 1) * 0.025
+          ); 
+          // Cada oportunidad se calcula de forma independiente.
+          const golesNuevos =
+            (Math.random() < probabilidadGol ? 1 : 0) +
+            (temporada >= 5 && Math.random() < probabilidadGol * 0.35 ? 1 : 0);
+
+          const asistenciasNuevas =
+            (Math.random() < probabilidadAsistencia ? 1 : 0) +
+            (temporada >= 5 && Math.random() < probabilidadAsistencia * 0.30 ? 1 : 0);
+
+          const notaBase = 5 + Math.random() * 2;
+
+          const notaRendimiento = Math.min(
+            10,
+            Number(
+              (
+                notaBase +
+                golesNuevos * 2 +
+                asistenciasNuevas * 1.5
+              ).toFixed(1)
+            )
+          );
+
           // Actualizamos posición, estadísticas y turnos pendientes.
+
           await query(
             `UPDATE ParticipantePartida
-                     SET
-                        posicion_actual = ?,
-                        fama = fama + ?,
-                        plata = plata + ?,
-                        idolatria = idolatria + ?,
-                        turnos_pendientes_perdidos =
-                            turnos_pendientes_perdidos + ?
-                     WHERE id_partida = ?
-                       AND id_usuario = ?`,
+     SET
+        posicion_actual = ?,
+        fama = GREATEST(0, fama + ?),
+        plata = GREATEST(0, plata + ?),
+        idolatria = GREATEST(0, idolatria + ?),
+        goles = COALESCE(goles, 0) + ?,
+        asistencias = COALESCE(asistencias, 0) + ?,
+        turnos_pendientes_perdidos =
+            turnos_pendientes_perdidos + ?
+     WHERE id_partida = ?
+       AND id_usuario = ?`,
             [
               nuevaPosicion,
               Number(evento.efecto_fama) || 0,
               Number(evento.efecto_plata) || 0,
               Number(evento.efecto_idolatria) || 0,
+              golesNuevos,
+              asistenciasNuevas,
               turnosPerdidos,
               idPartida,
               idUsuario
@@ -1147,7 +1192,15 @@ io.on("connection", (socket) => {
             resultadoDado,
             idUsuarioQueJugo: idUsuario,
             idParticipanteQueJugo: jugador.id_participante,
+
+            rendimiento: {
+              goles: golesNuevos,
+              asistencias: asistenciasNuevas,
+              nota: notaRendimiento
+            },
+
             jugadores: jugadoresActualizados,
+
             evento: {
               id_evento: evento.id_evento,
               nombre: evento.nombre,
@@ -1155,8 +1208,7 @@ io.on("connection", (socket) => {
               categoria: evento.categoria,
               efecto_fama: Number(evento.efecto_fama) || 0,
               efecto_plata: Number(evento.efecto_plata) || 0,
-              efecto_idolatria:
-                Number(evento.efecto_idolatria) || 0,
+              efecto_idolatria: Number(evento.efecto_idolatria) || 0,
               bloquea_avance: bloqueaAvance,
               turnos_perdidos: turnosPerdidos,
               posicion_resultante: nuevaPosicion
@@ -1173,11 +1225,17 @@ io.on("connection", (socket) => {
         return;
       }
 
-      // Compartimos el nuevo estado con los dos jugadores.
-      io.to(`partida_${idPartida}`).emit(
+      // El evento es privado: solo lo ve el jugador que tiró el dado.
+      // Al resto de la sala les llega el estado con el evento oculto.
+      // broadcast excluye al socket actual, así que recibe una sola vez.
+      const { evento, ...estadoPublico } = resultadoTurno;
+
+      socket.broadcast.to(`partida_${idPartida}`).emit(
         "estadoPartidaActualizado",
-        resultadoTurno
+        estadoPublico
       );
+
+      socket.emit("estadoPartidaActualizado", resultadoTurno);
 
     } catch (error) {
       console.error("Error al jugar el turno:", error);
@@ -1196,8 +1254,8 @@ io.on("connection", (socket) => {
 
 
 async function obtenerJugadores(query, idPartida) {
-    return await query(
-        `SELECT
+  return await query(
+    `SELECT
             pp.id_participante,
             pp.id_partida,
             pp.id_usuario,
@@ -1226,8 +1284,8 @@ async function obtenerJugadores(query, idPartida) {
          LEFT JOIN Titulo t
             ON pp.id_titulo = t.id_titulo
          WHERE pp.id_partida = ?`,
-        [idPartida]
-    );
+    [idPartida]
+  );
 }
 
 /** Sortea un evento usando peso como ponderación relativa entre los elegibles. */

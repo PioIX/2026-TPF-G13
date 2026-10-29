@@ -1,3 +1,4 @@
+
 export default function Evento(props) {
     const evento = props.evento;
 
@@ -7,11 +8,11 @@ export default function Evento(props) {
 
     return (
         <section className="evento">
-            <h2>{evento.nombre}</h2>
+            <h2 id="popup-evento-titulo">{evento.nombre}</h2>
 
             <p>{evento.descripcion}</p>
 
-            <p>
+            <p className="evento-categoria">
                 Categoría: {evento.categoria}
             </p>
 

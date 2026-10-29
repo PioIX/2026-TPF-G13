@@ -8,6 +8,7 @@ import Tablero from "@/components/Tablero";
 import Button from "@/components/Button";
 import PanelJugador from "@/components/PanelJugador";
 import PopupEvento from "@/components/PopupEvento";
+import PopupRendimiento from "@/components/PopupRendimiento";
 
 export default function PartidaPage() {
     const searchParams = useSearchParams();
@@ -21,6 +22,8 @@ export default function PartidaPage() {
     const [conectado, setConectado] = useState(false);
     const [cargando, setCargando] = useState(true);
     const [mostrarEvento, setMostrarEvento] = useState(false);
+    const [rendimientoActual, setRendimientoActual] = useState(null);
+    const [mostrarRendimiento, setMostrarRendimiento] = useState(false);
     const [tirandoDado, setTirandoDado] = useState(false);
     const [resultadoMostrado, setResultadoMostrado] = useState(null);
 
@@ -95,6 +98,9 @@ export default function PartidaPage() {
 
                 socket.on("estadoPartidaActualizado", (estado) => {
                     if (Number(estado.idUsuarioQueJugo) === idUsuarioActual) {
+                        setRendimientoActual(estado.rendimiento ?? null);
+                    }
+                    if (Number(estado.idUsuarioQueJugo) === idUsuarioActual) {
                         const tiempoRestante = Math.max(
                             0,
                             3000 - (Date.now() - (inicioTiradaRef.current ?? 0))
@@ -119,9 +125,8 @@ export default function PartidaPage() {
                     }
 
                     setJugadores(estado.jugadores);
-
                     const jugoYo =
-                        Number(estado.idUsuarioQueJugo) === idUsuarioActual;
+                        Number(estado.idUsuarioQueJugo) === Number(idUsuarioActual);
 
                     // El evento se presenta solo después de mostrar la cara final del dado.
                     if (jugoYo && estado.evento) {
@@ -240,12 +245,6 @@ export default function PartidaPage() {
         <main className={`game-page game-page--partida${tirandoDado ? " game-page--tirando" : ""}`}>
             <h1>El Trayecto</h1>
 
-            <p>Partida: {idPartida}</p>
-
-            <p>
-                Conexión: {conectado ? "Conectado" : "Desconectado"}
-            </p>
-
             <div className="game-jugadores">
                 <PanelJugador
                     titulo="Tu futbolista"
@@ -297,10 +296,23 @@ export default function PartidaPage() {
                 )}
             </section>
 
+
             <PopupEvento
                 evento={mostrarEvento ? eventoActual : null}
-                onCerrar={() => setMostrarEvento(false)}
+                onContinuar={() => {
+                    setMostrarEvento(false);
+
+                    if (rendimientoActual) {
+                        setMostrarRendimiento(true);
+                    }
+                }}
             />
+
+            <PopupRendimiento
+                rendimiento={mostrarRendimiento ? rendimientoActual : null}
+                onCerrar={() => setMostrarRendimiento(false)}
+            />
+
         </main>
     );
 }
