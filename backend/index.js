@@ -1001,6 +1001,13 @@ io.on("connection", (socket) => {
             };
           }
 
+          // Posición actual del jugador en el tablero, usada como
+          // temporada para decidir qué eventos son elegibles.
+          const posicionActual = Math.max(
+            1,
+            Number(jugador.posicion_actual) || 1
+          );
+
           const rival = jugadores.find(
             (j) => Number(j.id_usuario) !== idUsuario
           );
@@ -1201,11 +1208,17 @@ io.on("connection", (socket) => {
         return;
       }
 
-      // Compartimos el nuevo estado con los dos jugadores.
-      io.to(`partida_${idPartida}`).emit(
+      // El evento es privado: solo lo ve el jugador que tiró el dado.
+      // Al resto de la sala les llega el estado con el evento oculto.
+      // broadcast excluye al socket actual, así que recibe una sola vez.
+      const { evento, ...estadoPublico } = resultadoTurno;
+
+      socket.broadcast.to(`partida_${idPartida}`).emit(
         "estadoPartidaActualizado",
-        resultadoTurno
+        estadoPublico
       );
+
+      socket.emit("estadoPartidaActualizado", resultadoTurno);
 
     } catch (error) {
       console.error("Error al jugar el turno:", error);
