@@ -248,6 +248,10 @@ app.post("/partidas/:idPartida/eleccion", async (req, res) => {
     await mysql.realizarQuery(
       `UPDATE ParticipantePartida
              SET id_club = ${idClub},
+                 grl = 1,
+                 id_seleccion = NULL,
+                 lesionado = 0,
+                 lesion_hasta_temporada = NULL,
                  nombre_leyenda = '${nombreEscapado}'
              WHERE id_partida = ${idPartida}
                AND id_usuario = ${idUsuario}`
@@ -656,6 +660,11 @@ app.get("/partidas/:idPartida/jugadores", async (req, res) => {
               pp.id_partida,
               pp.id_usuario,
               pp.id_club,
+              c.jerarquia AS jerarquia_club,
+              pp.grl,
+              pp.lesionado,
+              pp.lesion_hasta_temporada,
+              pp.id_seleccion,
               pp.id_titulo,
               pp.puntos_campeon,
               pp.goles,
@@ -960,15 +969,19 @@ io.on("connection", (socket) => {
           // Bloqueamos los participantes durante la transacción.
           const jugadores = await query(
             `SELECT
-                        id_participante,
-                        id_usuario,
-                        posicion_actual,
-                        id_seleccion,
-                        turno,
-                        listo,
-                        turnos_pendientes_perdidos
-                     FROM ParticipantePartida
-                     WHERE id_partida = ?
+                        pp.id_participante,
+                        pp.id_usuario,
+                        pp.posicion_actual,
+                        pp.id_seleccion,
+                        pp.lesionado,
+                        pp.lesion_hasta_temporada,
+                        pp.grl,
+                        pp.id_club,
+                        pp.turno,
+                        pp.listo,
+                        pp.turnos_pendientes_perdidos
+                     FROM ParticipantePartida pp
+                     WHERE pp.id_partida = ?
                      FOR UPDATE`,
             [idPartida]
           );
@@ -989,6 +1002,8 @@ io.on("connection", (socket) => {
             };
           }
 
+
+
           if (!jugadores.every((j) => Boolean(j.listo))) {
             return {
               error: "Los dos jugadores deben estar listos."
@@ -1001,12 +1016,20 @@ io.on("connection", (socket) => {
             };
           }
 
-          // Posición actual del jugador en el tablero, usada como
-          // temporada para decidir qué eventos son elegibles.
+          // Posición actual representa la temporada que está por jugar.
           const posicionActual = Math.max(
             1,
             Number(jugador.posicion_actual) || 1
           );
+          const lesionado = Boolean(Number(jugador.lesionado)) &&
+            (jugador.lesion_hasta_temporada == null ||
+             Number(jugador.lesion_hasta_temporada) >= posicionActual);
+          const jugadorContexto = {
+            ...jugador,
+            posicion_actual: posicionActual,
+            lesionado
+          };
+
 
           const rival = jugadores.find(
             (j) => Number(j.id_usuario) !== idUsuario
@@ -1063,38 +1086,94 @@ io.on("connection", (socket) => {
           // El dado se tira, pero cada tirada representa un avance
           // de una casilla, no un avance equivalente al número.
           const resultadoDado = Math.floor(Math.random() * 6) + 1;
+          const cooldownDisponible = await query(
+            `SELECT id_evento FROM EstadoCarreraEvento LIMIT 0`
+          ).then(() => true).catch(() => false);
+          const historialReciente = cooldownDisponible
+            ? await query(
+                `SELECT id_evento, temporada FROM EstadoCarreraEvento
+                 WHERE id_participante = ?`,
+                [jugador.id_participante]
+              )
+            : [];
+          jugadorContexto.historialReciente = historialReciente;
 
-          // Usamos la posición del tablero como temporada (una posición por turno).
-          // Peso es el peso relativo dentro de los eventos elegibles, no un porcentaje fijo.
-          // Los eventos de Selección se habilitan desde la temporada 5.
           const eventos = await query(
             `SELECT
-                        id_evento,
-                        nombre,
-                        descripcion,
-                        categoria,
-                        efecto_fama,
-                        efecto_plata,
-                        efecto_idolatria,
-                        peso,
-                        bloquea_avance,
-                        turnos_perdidos
-                     FROM Evento
-                     WHERE peso > 0
-                       AND NOT (
-                         (LOWER(categoria) IN ('selección', 'seleccion') OR id_evento IN (25, 26, 27, 28, 29, 30))
-                         AND ? < 5
-                       )`,
-            [posicionActual]
+                        e.id_evento,
+                        e.nombre,
+                        e.descripcion,
+                        e.categoria,
+                        e.efecto_fama,
+                        e.efecto_plata,
+                        e.efecto_idolatria,
+                        e.peso,
+                        e.bloquea_avance,
+                        e.turnos_perdidos,
+                        e.requiere_lesion,
+                        e.requiere_seleccion,
+                        e.bloquea_si_lesionado,
+                        e.cooldown_temporadas,
+                        e.temporada_minima,
+                        e.temporada_maxima
+                     FROM Evento e
+                     WHERE e.peso > 0
+                       AND ? >= e.temporada_minima
+                       AND (e.temporada_maxima IS NULL OR ? <= e.temporada_maxima)
+                       AND (e.requiere_lesion = 0 OR ? = 1)
+                       AND (e.requiere_seleccion = 0 OR ? = 1)
+                       AND (e.bloquea_si_lesionado = 0 OR ? = 0)
+                       AND (? = 0 OR e.cooldown_temporadas = 0 OR NOT EXISTS (
+                         SELECT 1
+                         FROM EstadoCarreraEvento h
+                         WHERE h.id_participante = ?
+                           AND h.id_evento = e.id_evento
+                           AND h.temporada > ? - e.cooldown_temporadas
+                           AND h.temporada <= ?
+                       ))`,
+            [
+              posicionActual,
+              posicionActual,
+              Number(lesionado),
+              Number(jugador.id_seleccion != null),
+              Number(lesionado),
+              Number(cooldownDisponible),
+              jugador.id_participante,
+              posicionActual,
+              posicionActual
+            ]
           );
 
-          if (eventos.length === 0) {
+          const clubActual = jugador.id_club
+            ? await query(`SELECT jerarquia FROM Club WHERE id_club = ?`, [jugador.id_club])
+            : [];
+          const jerarquiaClub = Number(clubActual[0]?.jerarquia) || null;
+          jugadorContexto.jerarquiaClub = jerarquiaClub;
+          const pesosContextuales = eventos
+            .filter((evento) => eventoEsElegible(evento, {
+              ...jugadorContexto,
+              jerarquiaClub,
+              historialReciente
+            }))
+            .map((evento) => ({
+              ...evento,
+              peso: ajustarPesoPorContexto(evento, {
+                grl: Number(jugador.grl) || 1,
+                jerarquiaClub
+              })
+            }))
+            .filter((evento) => evento.peso > 0);
+
+          if (pesosContextuales.length === 0) {
             return {
               error: "No hay eventos elegibles con peso mayor a cero para esta etapa."
             };
           }
 
-          const evento = sortearEventoPonderado(eventos);
+          const evento = sortearEventoPonderado(pesosContextuales);
+          if (Number(evento.cooldown_temporadas) > 0 && !cooldownDisponible) {
+            throw new Error("Falta EstadoCarreraEvento, necesario para cooldown_temporadas.");
+          }
           const bloqueaAvance = Boolean(
             Number(evento.bloquea_avance)
           );
@@ -1107,6 +1186,24 @@ io.on("connection", (socket) => {
             0,
             Number(evento.turnos_perdidos) || 0
           );
+
+          const lesionHasta = Math.max(
+            posicionActual,
+            Number(jugador.lesion_hasta_temporada) || posicionActual
+          );
+          const nombreEventoNormalizado = normalizarTexto(evento.nombre);
+          const categoriaEvento = normalizarTexto(evento.categoria);
+          const eventoCausaLesion = categoriaEvento === "lesion" &&
+            !nombreEventoNormalizado.includes("recuperacion exitosa");
+          const esRecuperacion = nombreEventoNormalizado.includes("recuperacion exitosa");
+          const lesionNuevoEstado = esRecuperacion ? false : (lesionado || eventoCausaLesion);
+          const lesionNuevaHasta = esRecuperacion
+            ? null
+            : eventoCausaLesion
+              ? Math.max(lesionHasta, posicionActual + 1)
+              : lesionado
+                ? jugador.lesion_hasta_temporada
+                : null;
 
           const golesNuevos = Math.random() < 0.20 ? 1 : 0;
           const asistenciasNuevas = Math.random() < 0.25 ? 1 : 0;
@@ -1136,7 +1233,10 @@ io.on("connection", (socket) => {
         goles = COALESCE(goles, 0) + ?,
         asistencias = COALESCE(asistencias, 0) + ?,
         turnos_pendientes_perdidos =
-            turnos_pendientes_perdidos + ?
+            turnos_pendientes_perdidos + ?,
+        lesionado = ?,
+        lesion_hasta_temporada = ?,
+        grl = LEAST(99, GREATEST(1, grl + ?))
      WHERE id_partida = ?
        AND id_usuario = ?`,
             [
@@ -1147,22 +1247,43 @@ io.on("connection", (socket) => {
               golesNuevos,
               asistenciasNuevas,
               turnosPerdidos,
+              Number(lesionNuevoEstado),
+              lesionNuevaHasta,
+              calcularCambioGRL({
+                categoria: evento.categoria,
+                fama: Number(evento.efecto_fama) || 0,
+                goles: golesNuevos,
+                asistencias: asistenciasNuevas,
+                lesion: eventoCausaLesion,
+                recuperacion: esRecuperacion
+              }),
               idPartida,
               idUsuario
             ]
           );
 
-          // Registramos el evento en el historial.
-          await query(
-            `INSERT INTO HistorialEvento
-                        (id_participante, id_evento, posicion)
-                     VALUES (?, ?, ?)`,
-            [
-              jugador.id_participante,
-              evento.id_evento,
-              nuevaPosicion
-            ]
-          );
+          if (cooldownDisponible && Number(evento.cooldown_temporadas) > 0) {
+            await query(
+              `INSERT INTO EstadoCarreraEvento
+                          (id_participante, id_evento, temporada)
+                       VALUES (?, ?, ?)`,
+              [jugador.id_participante, evento.id_evento, posicionActual]
+            );
+          }
+
+          // Conservamos el historial actual, si esa tabla forma parte del esquema.
+          try {
+            await query(
+              `INSERT INTO HistorialEvento
+                          (id_participante, id_evento, posicion)
+                       VALUES (?, ?, ?)`,
+              [jugador.id_participante, evento.id_evento, nuevaPosicion]
+            );
+          } catch (error) {
+            if (!/HistorialEvento|doesn't exist|does not exist/i.test(error.message)) {
+              throw error;
+            }
+          }
 
           await cambiarTurno();
 
@@ -1243,6 +1364,11 @@ async function obtenerJugadores(query, idPartida) {
             pp.id_partida,
             pp.id_usuario,
             pp.id_club,
+            c.jerarquia AS jerarquia_club,
+            pp.grl,
+            pp.lesionado,
+            pp.lesion_hasta_temporada,
+            pp.id_seleccion,
             pp.id_titulo,
             pp.puntos_campeon,
             pp.goles,
@@ -1287,4 +1413,88 @@ function sortearEventoPonderado(eventos) {
   }
 
   return elegibles[elegibles.length - 1];
+}
+
+
+function normalizarTexto(texto) {
+  return String(texto ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+function eventoEsElegible(evento, jugador) {
+  const temporada = Number(jugador.posicion_actual) || 1;
+  const temporadaMinima = Number(evento.temporada_minima) || 1;
+  const temporadaMaxima = evento.temporada_maxima == null
+    ? null
+    : Number(evento.temporada_maxima);
+  const cooldown = Math.max(0, Number(evento.cooldown_temporadas) || 0);
+  const yaOcurrioEnCooldown = cooldown > 0 &&
+    (jugador.historialReciente ?? []).some((registro) =>
+      Number(registro.id_evento) === Number(evento.id_evento) &&
+      Number(registro.temporada) > temporada - cooldown &&
+      Number(registro.temporada) <= temporada
+    );
+  const requiereLesion = Boolean(Number(evento.requiere_lesion));
+  const requiereSeleccion = Boolean(Number(evento.requiere_seleccion));
+  const bloqueaLesionado = Boolean(Number(evento.bloquea_si_lesionado));
+  const convocado = Number(jugador.id_seleccion) > 0;
+
+  return temporada >= temporadaMinima &&
+    (temporadaMaxima === null || temporada <= temporadaMaxima) &&
+    !yaOcurrioEnCooldown &&
+    (!requiereLesion || Boolean(jugador.lesionado)) &&
+    (!requiereSeleccion || convocado) &&
+    (!bloqueaLesionado || !Boolean(jugador.lesionado));
+}
+
+/** Ajuste moderado y acotado del peso relativo según GRL y jerarquía del club. */
+function ajustarPesoPorContexto(evento, contexto) {
+  const peso = Number(evento.peso);
+  if (!Number.isFinite(peso) || peso <= 0) return 0;
+
+  const grl = Math.min(99, Math.max(1, Number(contexto.grl) || 1));
+  const jerarquiaValor = Number(contexto.jerarquiaClub);
+  const jerarquia = Number.isFinite(jerarquiaValor) && jerarquiaValor > 0
+    ? jerarquiaValor
+    : null;
+  const nombre = normalizarTexto(evento.nombre);
+  const categoria = normalizarTexto(evento.categoria);
+  let multiplicador = 1;
+
+  // Buen GRL favorece hitos extraordinarios; GRL bajo los hace más raros.
+  if (/puskas|record personal|figura internacional|gol internacional|titular en la seleccion|heredas la n.?10/.test(nombre)) {
+    multiplicador *= 0.55 + grl / 100;
+  }
+  // Menor número de jerarquía representa club más alto en el esquema actual.
+  if (jerarquia !== null && /transferencia internacional|premio por rendimiento/.test(nombre)) {
+    multiplicador *= Math.min(1.6, Math.max(0.65, 1.4 - (jerarquia - 1) * 0.08));
+  }
+  // En clubes modestos aumenta la posibilidad de oferta de una categoría superior.
+  if (jerarquia !== null && /oferta de primera/.test(nombre)) {
+    multiplicador *= Math.min(2, Math.max(0.5, 0.8 + (jerarquia - 1) * 0.12));
+  }
+  // Modulación suave de sucesos positivos/negativos según nivel, no exclusión.
+  if (categoria === "positivo" && grl >= 75) multiplicador *= 1.1;
+  if (categoria === "negativo" && grl <= 45) multiplicador *= 1.1;
+
+  return Math.max(0, peso * Math.min(2, Math.max(0.25, multiplicador)));
+}
+
+
+
+
+function calcularCambioGRL({ categoria, fama, goles, asistencias, lesion, recuperacion }) {
+  const categoriaNormalizada = normalizarTexto(categoria);
+  if (lesion) return -1;
+  if (recuperacion) return 1;
+  if (categoriaNormalizada === "positivo") {
+    return goles > 0 || asistencias > 0 || fama >= 15 ? 1 : 0;
+  }
+  if (categoriaNormalizada === "negativo" || categoriaNormalizada === "lesion") {
+    return fama <= -15 ? -1 : 0;
+  }
+  return 0;
 }
