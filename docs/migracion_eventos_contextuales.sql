@@ -5,18 +5,18 @@
 -- Según el esquema compartido, ParticipantePartida ya tiene id_seleccion.
 -- Hacer backup y confirmar que las columnas no existan antes de ejecutar.
 
--- Estado médico por participante. lesion_hasta_temporada permite definir
--- cuánto dura una lesión sin depender de un flag permanente.
--- YA LO AÑADÍ, NO LO PONGAN
-ALTER TABLE ParticipantePartida
-    ADD COLUMN lesionado BOOLEAN NOT NULL DEFAULT FALSE,
-    ADD COLUMN lesion_hasta_temporada SMALLINT UNSIGNED NULL DEFAULT NULL;
+-- Estado médico y GRL ya fueron agregados a ParticipantePartida.
+-- No volver a ejecutar ALTER TABLE para esas columnas.
+-- El nivel de club se consulta mediante Club.jerarquia y ParticipantePartida.id_club.
 
--- nivel_club/jugador son opcionales: agregarlos solo si van a influir
--- realmente en elegibilidad o consecuencias de eventos.
-ALTER TABLE ParticipantePartida
-    ADD COLUMN nivel_club TINYINT UNSIGNED NULL DEFAULT NULL,
-    ADD COLUMN nivel_jugador TINYINT UNSIGNED NOT NULL DEFAULT 1;
+-- El nivel del club se obtiene de Club.jerarquia usando id_club;
+-- no duplicarlo en ParticipantePartida.
+-- GRL ya fue agregado a ParticipantePartida; no repetir ALTER TABLE.
+
+-- Para consultar la jerarquía del club seleccionado:
+-- SELECT pp.id_participante, c.jerarquia AS nivel_club
+-- FROM ParticipantePartida pp
+-- LEFT JOIN Club c ON c.id_club = pp.id_club;
 
 -- Registro de eventos por participante/temporada para cooldown e historial contextual.
 CREATE TABLE EstadoCarreraEvento (
