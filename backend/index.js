@@ -1207,6 +1207,25 @@ io.on("connection", (socket) => {
 
           const golesNuevos = Math.random() < 0.20 ? 1 : 0;
           const asistenciasNuevas = Math.random() < 0.25 ? 1 : 0;
+          const temporada = Math.min(20, Math.max(1, posicionActual));
+
+          const probabilidadGol = Math.min(
+            0.90,
+            0.30 + (temporada - 1) * 0.03
+          );
+
+          const probabilidadAsistencia = Math.min(
+            0.85,
+            0.35 + (temporada - 1) * 0.025
+          ); 
+          // Cada oportunidad se calcula de forma independiente.
+          const golesNuevos =
+            (Math.random() < probabilidadGol ? 1 : 0) +
+            (temporada >= 5 && Math.random() < probabilidadGol * 0.35 ? 1 : 0);
+
+          const asistenciasNuevas =
+            (Math.random() < probabilidadAsistencia ? 1 : 0) +
+            (temporada >= 5 && Math.random() < probabilidadAsistencia * 0.30 ? 1 : 0);
 
           const notaBase = 5 + Math.random() * 2;
 
@@ -1393,8 +1412,8 @@ async function obtenerJugadores(query, idPartida) {
          LEFT JOIN Titulo t
             ON pp.id_titulo = t.id_titulo
          WHERE pp.id_partida = ?`,
-        [idPartida]
-    );
+    [idPartida]
+  );
 }
 
 /** Sortea un evento usando peso como ponderación relativa entre los elegibles. */
