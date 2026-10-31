@@ -123,7 +123,6 @@ app.get("/partidas/:idPartida/eleccion", async (req, res) => {
                 pp.id_usuario,
                 pp.nombre_leyenda,
                 pp.id_club,
-                pp.nombre_leyenda,
                 u.nombre_usuario,
                 c.nombre AS nombre_club,
                 c.liga,
@@ -248,7 +247,8 @@ app.post("/partidas/:idPartida/eleccion", async (req, res) => {
     await mysql.realizarQuery(
       `UPDATE ParticipantePartida
              SET id_club = ${idClub},
-                 grl = 1,
+                 grl = 57,
+                 edad = 18,
                  id_seleccion = NULL,
                  lesionado = 0,
                  lesion_hasta_temporada = NULL,
@@ -328,6 +328,87 @@ app.post("/partidas/:idPartida/eleccion", async (req, res) => {
   }
 });
 
+// El jugador elige su nuevo club tras un evento de cambio de club.
+app.post("/partidas/:idPartida/cambioClub", async (req, res) => {
+  try {
+    if (!req.session.usuario) {
+      return res.status(401).json({ error: "Tenés que iniciar sesión" });
+    }
+
+    const idPartida = Number(req.params.idPartida);
+    const idUsuario = Number(req.session.usuario.id_usuario);
+    const idClub = Number(req.body.id_club);
+
+    if (
+      !Number.isInteger(idPartida) || idPartida <= 0 ||
+      !Number.isInteger(idUsuario) || idUsuario <= 0 ||
+      !Number.isInteger(idClub) || idClub <= 0
+    ) {
+      return res.status(400).json({ error: "Datos inválidos" });
+    }
+
+    const participantes = await mysql.realizarQuery(
+      `SELECT id_participante, id_club
+              FROM ParticipantePartida
+              WHERE id_partida = ?
+                AND id_usuario = ?`,
+      [idPartida, idUsuario]
+    );
+
+    if (!participantes || participantes.length === 0) {
+      return res.status(403).json({ error: "No participás de esta partida" });
+    }
+
+    // El club destino debe existir y ser distinto del actual.
+    const clubes = await mysql.realizarQuery(
+      `SELECT id_club FROM Club
+              WHERE id_club = ?
+                AND id_club <> ?`,
+      [idClub, Number(participantes[0].id_club) || 0]
+    );
+
+    if (!clubes || clubes.length === 0) {
+      return res.status(400).json({ error: "El club seleccionado no es válido" });
+    }
+
+    await mysql.realizarQuery(
+      `UPDATE ParticipantePartida
+              SET id_club = ?
+              WHERE id_partida = ?
+                AND id_usuario = ?`,
+      [idClub, idPartida, idUsuario]
+    );
+
+    const jugadores = await mysql.realizarQuery(
+      `SELECT
+                pp.id_participante,
+                pp.id_usuario,
+                pp.id_club,
+                pp.nombre_leyenda,
+                pp.posicion_actual,
+                c.nombre AS nombre_club,
+                c.liga,
+                c.jerarquia AS jerarquia_club
+              FROM ParticipantePartida pp
+              LEFT JOIN Club c
+                ON pp.id_club = c.id_club
+              WHERE pp.id_partida = ?`,
+      [idPartida]
+    );
+
+    io.to(`partida_${idPartida}`).emit("jugadoresActualizados", jugadores);
+
+    return res.status(200).json({
+      mensaje: "Firmaste con tu nuevo club",
+      jugadores
+    });
+
+  } catch (error) {
+    console.error("Error al cambiar de club:", error);
+    return res.status(500).json({ error: "No se pudo completar el cambio de club" });
+  }
+});
+
 //
 // REGISTRO DE USUARIO
 app.post("/registro", async (req, res) => {
@@ -343,7 +424,8 @@ app.post("/registro", async (req, res) => {
 
     // Verificamos si ya existe un usuario con ese email
     const usuarioExistente = await mysql.realizarQuery(
-      `SELECT * FROM Usuario WHERE email = '${email}'`
+      `SELECT id_usuario FROM Usuario WHERE email = ?`,
+      [email]
     );
 
     if (usuarioExistente.length > 0) {
@@ -355,7 +437,8 @@ app.post("/registro", async (req, res) => {
     // Insertamos el nuevo usuario
     await mysql.realizarQuery(
       `INSERT INTO Usuario (nombre_usuario, email, contrasena)
-       VALUES ('${nombre_usuario}', '${email}', '${contrasena}')`
+       VALUES (?, ?, ?)`,
+      [nombre_usuario, email, contrasena]
     );
 
     res.status(201).json({
@@ -386,7 +469,8 @@ app.post("/login", async (req, res) => {
 
     // Buscamos el usuario por email
     const usuarios = await mysql.realizarQuery(
-      `SELECT * FROM Usuario WHERE email = '${email}'`
+      `SELECT * FROM Usuario WHERE email = ?`,
+      [email]
     );
 
     // Si no existe
@@ -462,7 +546,8 @@ app.post("/salas/entrar", async (req, res) => {
 
     // Buscamos si ya existe una partida con ese nombre
     const partidas = await mysql.realizarQuery(
-      `SELECT * FROM Partida WHERE nombre_sala = '${nombre_sala}'`
+      `SELECT * FROM Partida WHERE nombre_sala = ?`,
+      [nombre_sala]
     );
 
     // Si no existe, creamos la partida
@@ -470,7 +555,8 @@ app.post("/salas/entrar", async (req, res) => {
 
       const idPartida = await mysql.realizarQueryInsert(
         `INSERT INTO Partida (nombre_sala, estado)
-                 VALUES ('${nombre_sala}', 'esperando')`
+                 VALUES (?, 'esperando')`,
+        [nombre_sala]
       );
 
       // Agregamos al usuario como participante
@@ -497,7 +583,7 @@ app.post("/salas/entrar", async (req, res) => {
 
     // Verificamos si el usuario ya está dentro
     const usuarioYaEsta = participantes.some(
-      participante => participante.id_usuario === idUsuario
+      participante => Number(participante.id_usuario) === Number(idUsuario)
     );
 
     if (usuarioYaEsta) {
@@ -662,6 +748,7 @@ app.get("/partidas/:idPartida/jugadores", async (req, res) => {
               pp.id_club,
               c.jerarquia AS jerarquia_club,
               pp.grl,
+              pp.edad,
               pp.lesionado,
               pp.lesion_hasta_temporada,
               pp.id_seleccion,
@@ -669,6 +756,7 @@ app.get("/partidas/:idPartida/jugadores", async (req, res) => {
               pp.puntos_campeon,
               pp.goles,
               pp.asistencias,
+              pp.partidos_jugados,
               pp.fama,
               pp.plata,
               pp.idolatria,
@@ -976,6 +1064,7 @@ io.on("connection", (socket) => {
                         pp.lesionado,
                         pp.lesion_hasta_temporada,
                         pp.grl,
+                        pp.edad,
                         pp.id_club,
                         pp.turno,
                         pp.listo,
@@ -1205,38 +1294,133 @@ io.on("connection", (socket) => {
                 ? jugador.lesion_hasta_temporada
                 : null;
 
-          const golesNuevos = Math.random() < 0.20 ? 1 : 0;
-          const asistenciasNuevas = Math.random() < 0.25 ? 1 : 0;
-          const temporada = Math.min(20, Math.max(1, posicionActual));
+          // Convocación a la Selección: los eventos positivos de
+          // Selección convocan al jugador (setean id_seleccion) y los
+          // negativos lo dejan fuera de la lista.
+          const esEventoSeleccionNegativo = /quedas fuera de la lista/.test(nombreEventoNormalizado);
+          const esEventoSeleccionPositivo = categoriaEvento === "seleccion" && !esEventoSeleccionNegativo;
 
-          const probabilidadGol = Math.min(
-            0.90,
-            0.30 + (temporada - 1) * 0.03
+          let nuevaIdSeleccion = jugador.id_seleccion;
+          if (esEventoSeleccionNegativo) {
+            nuevaIdSeleccion = null;
+          } else if (esEventoSeleccionPositivo) {
+            nuevaIdSeleccion = 1; // convocado / sigue convocado
+          }
+
+          // Cada turno representa una temporada completa de liga.
+          // Un campeonato realista ronda los 30-38 partidos.
+          const PARTIDOS_POR_TEMPORADA = 34;
+
+          // Lesión preexistente o nueva: se pierde una parte importante
+          // de la temporada. La recuperación implica volver a mitad de año.
+          const lesionGrave = eventoCausaLesion || lesionado;
+          const partidosJugadosTemporada = esRecuperacion
+            ? PARTIDOS_POR_TEMPORADA - Math.floor(Math.random() * 10) - 10
+            : lesionGrave
+              ? Math.max(1, Math.floor(Math.random() * 10) + 3)
+              : PARTIDOS_POR_TEMPORADA - Math.floor(Math.random() * 8);
+
+          // El GRL y la etapa de la carrera definen cuánto aporta
+          // el jugador por partido (goles y asistencias esperadas).
+          const grlJugador = Math.min(99, Math.max(1, Number(jugador.grl) || 1));
+
+          // Curva de edad futbolera: arranca en 18, pico entre 25 y 28,
+          // y desciende suavemente hacia el retiro (38).
+          const edad = Math.max(18, Number(jugador.edad) || 18);
+          const edadPico = 26;
+          const factorEdad = edad <= edadPico
+            // Juvenil: sube desde 0.60 a 1.00 entre los 18 y los 26.
+            ? 0.60 + (edad - 18) * (0.40 / (edadPico - 18))
+            // Veterano: baja desde 1.00 a 0.55 entre los 26 y los 38.
+            : Math.max(0.55, 1.0 - (edad - edadPico) * 0.037);
+
+          // Excepcional: GRL alto + veterano conserva parte del pico
+          // (los grandes siguen rindiendo hasta los 33-34).
+          const factorEdadFinal = grlJugador >= 80 && edad > edadPico
+            ? Math.min(1, factorEdad + 0.15)
+            : factorEdad;
+
+          const golesEsperadosPorPartido = Math.min(
+            1.4,
+            (0.10 + grlJugador * 0.008) * factorEdadFinal
+          );
+          const asistenciasEsperadasPorPartido = Math.min(
+            0.6,
+            (0.06 + grlJugador * 0.004) * (0.8 + 0.2 * factorEdadFinal)
           );
 
-          const probabilidadAsistencia = Math.min(
-            0.85,
-            0.35 + (temporada - 1) * 0.025
-          ); 
-          // Cada oportunidad se calcula de forma independiente.
-          const golesNuevos =
-            (Math.random() < probabilidadGol ? 1 : 0) +
-            (temporada >= 5 && Math.random() < probabilidadGol * 0.35 ? 1 : 0);
+          // Distribución de Poisson (aproximación de Knuth): modela
+          // de forma realista cuántos goles/asistencias surgen de
+          // los partidos disputados en la temporada.
+          const samplePoisson = (media) => {
+            const l = Math.exp(-media);
+            let k = 0;
+            let p = 1;
+            do {
+              k++;
+              p *= Math.random();
+            } while (p > l);
+            return k - 1;
+          };
 
-          const asistenciasNuevas =
-            (Math.random() < probabilidadAsistencia ? 1 : 0) +
-            (temporada >= 5 && Math.random() < probabilidadAsistencia * 0.30 ? 1 : 0);
+          const golesNuevos = Math.min(
+            partidosJugadosTemporada * 3,
+            samplePoisson(Math.max(0.01, partidosJugadosTemporada * golesEsperadosPorPartido))
+          );
+          const asistenciasNuevas = Math.min(
+            partidosJugadosTemporada * 2,
+            samplePoisson(Math.max(0.01, partidosJugadosTemporada * asistenciasEsperadasPorPartido))
+          );
 
-          const notaBase = 5 + Math.random() * 2;
+          // Evolución de la media (GRL), estilo "El Ídolo" de Potrero:
+          // - Joven (hasta 25): crece fuerte, 2 a 3.5 por temporada.
+          // - Pico (26-29): crece moderado, 0.5 a 1.5.
+          // - Veterano (30+): declive físico, 1 a 2 por temporada.
+          // Goles y asistencias suman por encima de eso: mejor temporada,
+          // más media (+ media + goles + asistencias, todo suma).
+          // Los eventos ajustan según su fama, y la lesión castiga 1 a 3
+          // según su gravedad.
+          const mediaBase =
+            edad < 26
+              ? 2 + Math.random() * 1.5
+              : edad <= 29
+                ? 0.5 + Math.random() * 1
+                : -(1 + Math.random());
+          const mediaPorRendimiento =
+            golesNuevos * 0.08 + asistenciasNuevas * 0.04;
+          let cambioGRL = mediaBase + mediaPorRendimiento;
 
+          if (eventoCausaLesion) {
+            // Gravedad por fama negativa del evento de lesión.
+            const famaLesion = Number(evento.efecto_fama) || 0;
+            const gravedad = famaLesion <= -20 ? 3 : famaLesion <= -10 ? 2 : 1;
+            cambioGRL -= gravedad;
+          } else if (esRecuperacion) {
+            cambioGRL += 1;
+          } else if (categoriaEvento === "positivo" || categoriaEvento === "seleccion") {
+            const famaEvento = Number(evento.efecto_fama) || 0;
+            cambioGRL += famaEvento >= 25 ? 1 : famaEvento >= 15 ? 0.5 : 0;
+          } else if (categoriaEvento === "negativo" || categoriaEvento === "aleatorio") {
+            const famaEvento = Number(evento.efecto_fama) || 0;
+            cambioGRL -= famaEvento <= -15 ? 0.5 : 0;
+          }
+
+          cambioGRL = Math.round(cambioGRL * 10) / 10;
+
+          // Nota de temporada: se basa en el rendimiento real
+          // (goles y asistencias cada 90 minutos) más un factor de forma.
           const notaRendimiento = Math.min(
             10,
-            Number(
-              (
-                notaBase +
-                golesNuevos * 2 +
-                asistenciasNuevas * 1.5
-              ).toFixed(1)
+            Math.max(
+              3.5,
+              Number(
+                (
+                  5.5 +
+                  (golesNuevos / partidosJugadosTemporada) * 8 +
+                  (asistenciasNuevas / partidosJugadosTemporada) * 5 +
+                  (Math.random() - 0.5)
+                ).toFixed(1)
+              )
             )
           );
 
@@ -1251,10 +1435,13 @@ io.on("connection", (socket) => {
         idolatria = GREATEST(0, idolatria + ?),
         goles = COALESCE(goles, 0) + ?,
         asistencias = COALESCE(asistencias, 0) + ?,
+        partidos_jugados = COALESCE(partidos_jugados, 0) + ?,
         turnos_pendientes_perdidos =
             turnos_pendientes_perdidos + ?,
         lesionado = ?,
         lesion_hasta_temporada = ?,
+        edad = ?,
+        id_seleccion = ?,
         grl = LEAST(99, GREATEST(1, grl + ?))
      WHERE id_partida = ?
        AND id_usuario = ?`,
@@ -1265,17 +1452,13 @@ io.on("connection", (socket) => {
               Number(evento.efecto_idolatria) || 0,
               golesNuevos,
               asistenciasNuevas,
+              partidosJugadosTemporada,
               turnosPerdidos,
               Number(lesionNuevoEstado),
               lesionNuevaHasta,
-              calcularCambioGRL({
-                categoria: evento.categoria,
-                fama: Number(evento.efecto_fama) || 0,
-                goles: golesNuevos,
-                asistencias: asistenciasNuevas,
-                lesion: eventoCausaLesion,
-                recuperacion: esRecuperacion
-              }),
+              18 + nuevaPosicion - 1,
+              nuevaIdSeleccion,
+              cambioGRL,
               idPartida,
               idUsuario
             ]
@@ -1306,6 +1489,62 @@ io.on("connection", (socket) => {
 
           await cambiarTurno();
 
+          // Eventos de cambio de club: generamos 3 opciones con la
+          // misma jerarquía (o la indicada por el evento) para que
+          // el jugador elija su nuevo equipo.
+          let opcionesCambioClub = null;
+          let jerarquiaObjetivo = null;
+          const nombreEventoCambio = normalizarTexto(evento.nombre);
+          const esCambioDeClub = normalizarTexto(evento.categoria) === "cambio de club";
+
+          if (esCambioDeClub) {
+            // Regla futbolera: el destino depende del tipo de evento.
+            // - Rescisión / venta: te quedás en tu nivel.
+            // - Oferta de Primera / transferencia internacional: te suben un nivel.
+            // - Préstamo / vuelta a casa: mismo nivel.
+            const jerarquiaActual = Number(jerarquiaClub) || 1;
+            let jerarquiaDestino = jerarquiaActual;
+
+            if (/oferta de primera|transferencia internacional/.test(nombreEventoCambio)) {
+              jerarquiaDestino = Math.max(1, jerarquiaActual - 1);
+            } else if (/venta inesperada/.test(nombreEventoCambio)) {
+              jerarquiaDestino = Math.min(5, jerarquiaActual + 1);
+            }
+
+            jerarquiaObjetivo = jerarquiaDestino;
+
+            // Todos los clubes de esa jerarquía, excluyendo el actual
+            // y mezclando para que las opciones cambien entre partidas.
+            const candidatos = await query(
+              `SELECT id_club, nombre, liga, jerarquia
+                 FROM Club
+                WHERE jerarquia = ?
+                  AND id_club <> ?`,
+              [jerarquiaDestino, jugador.id_club || 0]
+            );
+
+            const barajados = candidatos.sort(() => Math.random() - 0.5);
+            opcionesCambioClub = barajados.slice(0, 3);
+
+            // Si no hay 3 clubes distintos en esa jerarquía, completamos
+            // con clubes de la jerarquía vecina más cercana.
+            if (opcionesCambioClub.length < 3) {
+              const extras = await query(
+                `SELECT id_club, nombre, liga, jerarquia
+                   FROM Club
+                  WHERE id_club NOT IN (
+                        SELECT id_club FROM Club WHERE jerarquia = ?
+                      )
+                    AND id_club <> ?
+                  ORDER BY ABS(jerarquia - ?) ASC, RAND() ASC
+                  LIMIT ?`,
+                [jerarquiaDestino, jugador.id_club || 0, jerarquiaDestino,
+                  3 - opcionesCambioClub.length]
+              );
+              opcionesCambioClub = [...opcionesCambioClub, ...extras];
+            }
+          }
+
           const jugadoresActualizados = await obtenerJugadores(
             query,
             idPartida
@@ -1319,6 +1558,7 @@ io.on("connection", (socket) => {
             rendimiento: {
               goles: golesNuevos,
               asistencias: asistenciasNuevas,
+              partidos: partidosJugadosTemporada,
               nota: notaRendimiento
             },
 
@@ -1334,7 +1574,13 @@ io.on("connection", (socket) => {
               efecto_idolatria: Number(evento.efecto_idolatria) || 0,
               bloquea_avance: bloqueaAvance,
               turnos_perdidos: turnosPerdidos,
-              posicion_resultante: nuevaPosicion
+              posicion_resultante: nuevaPosicion,
+              cambioClub: opcionesCambioClub
+                ? {
+                    jerarquiaObjetivo,
+                    opciones: opcionesCambioClub
+                  }
+                : null
             },
             turnoPerdido: false
           };
@@ -1385,6 +1631,7 @@ async function obtenerJugadores(query, idPartida) {
             pp.id_club,
             c.jerarquia AS jerarquia_club,
             pp.grl,
+            pp.edad,
             pp.lesionado,
             pp.lesion_hasta_temporada,
             pp.id_seleccion,
@@ -1392,6 +1639,7 @@ async function obtenerJugadores(query, idPartida) {
             pp.puntos_campeon,
             pp.goles,
             pp.asistencias,
+            pp.partidos_jugados,
             pp.listo,
             pp.posicion_actual,
             pp.turno,
@@ -1505,15 +1753,4 @@ function ajustarPesoPorContexto(evento, contexto) {
 
 
 
-function calcularCambioGRL({ categoria, fama, goles, asistencias, lesion, recuperacion }) {
-  const categoriaNormalizada = normalizarTexto(categoria);
-  if (lesion) return -1;
-  if (recuperacion) return 1;
-  if (categoriaNormalizada === "positivo") {
-    return goles > 0 || asistencias > 0 || fama >= 15 ? 1 : 0;
-  }
-  if (categoriaNormalizada === "negativo" || categoriaNormalizada === "lesion") {
-    return fama <= -15 ? -1 : 0;
-  }
-  return 0;
-}
+
