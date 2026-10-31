@@ -28,7 +28,7 @@ exports.realizarQuery = async function (queryString, parametros = []) {
   try {
     connection = await mySql.createConnection(SQL_CONFIGURATION_DATA);
 
-    returnObject = await connection.execute(
+    returnObject = await connection.query(
       queryString,
       parametros
     );
@@ -45,13 +45,13 @@ exports.realizarQuery = async function (queryString, parametros = []) {
 };
 
 //→ INSERT donde necesitamos obtener el ID generado.
-exports.realizarQueryInsert = async function (queryString) {
+exports.realizarQueryInsert = async function (queryString, parametros = []) {
     let connection;
 
     try {
         connection = await mySql.createConnection(SQL_CONFIGURATION_DATA);
 
-        const [resultado] = await connection.execute(queryString);
+        const [resultado] = await connection.query(queryString, parametros);
 
         return resultado.insertId;
 
@@ -73,7 +73,7 @@ exports.realizarTransaccion = async function (callback) {
         await connection.beginTransaction();
 
         const query = async (sql, parametros = []) => {
-            const [resultado] = await connection.execute(sql, parametros);
+            const [resultado] = await connection.query(sql, parametros);
             return resultado;
         };
 
