@@ -146,3 +146,83 @@ CREATE TABLE EventoPartida (
 
 ALTER TABLE ParticipantePartida
 ADD COLUMN listo BOOLEAN NOT NULL DEFAULT FALSE;
+
+
+-- ============================================
+-- EL TRAYECTO: SISTEMA DE PENALES
+-- ============================================
+
+-- 1. Una tanda de penales por partida
+CREATE TABLE TandaPenales (
+    id_tanda INT AUTO_INCREMENT PRIMARY KEY,
+
+    id_partida INT NOT NULL UNIQUE,
+
+    estado ENUM('en_curso', 'finalizada')
+        NOT NULL DEFAULT 'en_curso',
+
+    id_participante_primero INT NOT NULL,
+
+    id_ganador INT NULL,
+
+    goles_jugador1 INT NOT NULL DEFAULT 0,
+
+    goles_jugador2 INT NOT NULL DEFAULT 0,
+
+    ronda_actual INT NOT NULL DEFAULT 1,
+
+    turno_actual ENUM('jugador1', 'jugador2')
+        NOT NULL DEFAULT 'jugador1',
+
+    fecha_inicio DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    fecha_fin DATETIME NULL,
+
+    CONSTRAINT fk_tanda_partida
+        FOREIGN KEY (id_partida)
+        REFERENCES Partida(id_partida),
+
+    CONSTRAINT fk_tanda_primero
+        FOREIGN KEY (id_participante_primero)
+        REFERENCES ParticipantePartida(id_participante),
+
+    CONSTRAINT fk_tanda_ganador
+        FOREIGN KEY (id_ganador)
+        REFERENCES ParticipantePartida(id_participante)
+);
+
+
+-- 2. Historial de intentos de la tanda
+CREATE TABLE IntentoPenal (
+    id_intento INT AUTO_INCREMENT PRIMARY KEY,
+
+    id_tanda INT NOT NULL,
+
+    numero_ronda INT NOT NULL,
+
+    id_participante_pateador INT NOT NULL,
+
+    id_participante_arquero INT NOT NULL,
+
+    direccion_pateador ENUM('izquierda', 'centro', 'derecha')
+        NOT NULL,
+
+    direccion_arquero ENUM('izquierda', 'centro', 'derecha')
+        NOT NULL,
+
+    resultado ENUM('gol', 'atajado') NOT NULL,
+
+    fecha_intento DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT fk_intento_tanda
+        FOREIGN KEY (id_tanda)
+        REFERENCES TandaPenales(id_tanda),
+
+    CONSTRAINT fk_intento_pateador
+        FOREIGN KEY (id_participante_pateador)
+        REFERENCES ParticipantePartida(id_participante),
+
+    CONSTRAINT fk_intento_arquero
+        FOREIGN KEY (id_participante_arquero)
+        REFERENCES ParticipantePartida(id_participante)
+);
