@@ -27,6 +27,10 @@ export default function PopupRendimiento({ rendimiento, onCerrar }) {
                     Asistencias: {rendimiento.asistencias}
                 </p>
 
+                <p>
+                    Partidos: {rendimiento.partidos}
+                </p>
+
                 <h3>
                     Nota: {rendimiento.nota}/10
                 </h3>
