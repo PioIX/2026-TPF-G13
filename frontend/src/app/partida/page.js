@@ -9,6 +9,7 @@ import Button from "@/components/Button";
 import PanelJugador from "@/components/PanelJugador";
 import PopupEvento from "@/components/PopupEvento";
 import PopupRendimiento from "@/components/PopupRendimiento";
+import PopupCambioClub from "@/components/PopupCambioClub";
 
 export default function PartidaPage() {
     const searchParams = useSearchParams();
@@ -26,6 +27,7 @@ export default function PartidaPage() {
     const [mostrarRendimiento, setMostrarRendimiento] = useState(false);
     const [tirandoDado, setTirandoDado] = useState(false);
     const [resultadoMostrado, setResultadoMostrado] = useState(null);
+    const [cambioClubPendiente, setCambioClubPendiente] = useState(null);
 
     const socketRef = useRef(null);
     const temporizadorTiradaRef = useRef(null);
@@ -142,6 +144,13 @@ export default function PartidaPage() {
                     } else if (estado.evento) {
                         setEventoActual(estado.evento);
                         setMostrarEvento(true);
+                    }
+
+                    if (
+                        jugoYo &&
+                        estado.evento?.cambioClub?.opciones?.length > 0
+                    ) {
+                        setCambioClubPendiente(estado.evento.cambioClub);
                     }
 
                     if (estado.turnoPerdido) {
@@ -311,6 +320,30 @@ export default function PartidaPage() {
             <PopupRendimiento
                 rendimiento={mostrarRendimiento ? rendimientoActual : null}
                 onCerrar={() => setMostrarRendimiento(false)}
+            />
+
+            <PopupCambioClub
+                cambioClub={cambioClubPendiente}
+                clubActual={miJugador?.nombre_club}
+                onElegir={(idClub) => {
+                    fetch(`http://localhost:4000/partidas/${idPartida}/cambioClub`, {
+                        method: "POST",
+                        credentials: "include",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ id_club: idClub })
+                    })
+                        .then((respuesta) => respuesta.json())
+                        .then((datos) => {
+                            if (datos.jugadores) {
+                                setJugadores(datos.jugadores);
+                            }
+                            setCambioClubPendiente(null);
+                            setMensaje("Te cambiaste de club. ¡Nueva etapa!");
+                        })
+                        .catch(() => {
+                            setCambioClubPendiente(null);
+                        });
+                }}
             />
 
         </main>
