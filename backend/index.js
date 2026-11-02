@@ -1556,7 +1556,8 @@ io.on("connection", (socket) => {
             golesNuevos,
             asistenciasNuevas,
             partidosJugadosTemporada,
-            temporada: nuevaPosicion
+            temporada: nuevaPosicion,
+            query
           });
 
           // El último título de cada tipo queda en ParticipantePartida
@@ -1817,7 +1818,7 @@ async function obtenerJugadores(query, idPartida) {
  * más importantes.
  */
 
-async function obtenerTituloGanado(idTituloGanado) {
+async function obtenerTituloGanado(query, idTituloGanado) {
   if (!Number.isInteger(idTituloGanado) || idTituloGanado <= 0) return null;
 
   const filas = await query(
@@ -1884,7 +1885,8 @@ async function procesarTitulosTemporada({
   golesNuevos,
   asistenciasNuevas,
   partidosJugadosTemporada,
-  temporada
+  temporada,
+  query
 }) {
   const titulosGanados = [];
 
@@ -1896,7 +1898,7 @@ async function procesarTitulosTemporada({
       [idParticipante, idTitulo, temporada]
     );
 
-    const titulo = await obtenerTituloGanado(resultado.insertId);
+    const titulo = await obtenerTituloGanado(query, resultado.insertId);
     if (titulo) {
       titulosGanados.push({ tipo, ...titulo });
     }
