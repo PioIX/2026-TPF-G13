@@ -1557,6 +1557,7 @@ io.on("connection", (socket) => {
             asistenciasNuevas,
             partidosJugadosTemporada,
             temporada: nuevaPosicion,
+            idSeleccion: nuevaIdSeleccion,
             query
           });
 
@@ -1631,9 +1632,9 @@ io.on("connection", (socket) => {
             let jerarquiaDestino = jerarquiaActual;
 
             if (/oferta de primera|transferencia internacional/.test(nombreEventoCambio)) {
-              jerarquiaDestino = Math.max(1, jerarquiaActual - 1);
-            } else if (/venta inesperada/.test(nombreEventoCambio)) {
               jerarquiaDestino = Math.min(5, jerarquiaActual + 1);
+            } else if (/venta inesperada/.test(nombreEventoCambio)) {
+              jerarquiaDestino = Math.max(1, jerarquiaActual - 1);
             }
 
             jerarquiaObjetivo = jerarquiaDestino;
@@ -1886,6 +1887,7 @@ async function procesarTitulosTemporada({
   asistenciasNuevas,
   partidosJugadosTemporada,
   temporada,
+  idSeleccion,
   query
 }) {
   const titulosGanados = [];
@@ -1907,15 +1909,19 @@ async function procesarTitulosTemporada({
   // ============================================================
   // 1. TÍTULO COLECTIVO (con el club)
   // ============================================================
-  // La jerarquía (1 = mejor club, 5 = más chico) define tanto la
+  // La jerarquía (1 = más chico, 5 = gigante) define tanto la
   // probabilidad como la calidad del trofeo que compite.
   if (idClub) {
     const jerarquia = Math.min(5, Math.max(1, Number(jerarquiaClub) || 3));
 
-    // Base de probabilidad: jerarquía 1 → casi siempre pelea algo,
-    // jerarquía 5 → rara vez gana y solo trofeos menores.
-    const factorJerarquia = 1.6 - (jerarquia - 1) * 0.25; // 1.60 .. 0.60
+    // Probabilidad base de campeonar según jerarquía: los gigantes
+    // pelean casi siempre, los chicos rara vez. Un solo tiro, no uno
+    // por trofeo: si falla, la temporada queda sin título colectivo.
+    const probabilidadCampeon = 0.07 + (jerarquia - 1) * 0.12; // 7% .. 55%
 
+    if (Math.random() >= probabilidadCampeon) {
+      // No salió campeón esta temporada.
+    } else {
     // El rendimiento de la temporada del jugador empuja al equipo.
     const meritoRendimiento =
       0.6 + notaRendimiento / 10 + (golesNuevos + asistenciasNuevas * 0.5) /
@@ -1933,46 +1939,63 @@ async function procesarTitulosTemporada({
     // Los clubes grandes compiten por todo; los chicos solo por
     // trofeos de prestigio bajo (copas nacionales, supercopas).
     const elegibles = candidatosColectivos.filter(
-      (titulo) => Number(titulo.prestigio) <= 5 - jerarquia + 1
+      (titulo) => Number(titulo.prestigio) <= jerarquia
     );
 
     const ganadorColectivo = sortearTitulo(
       elegibles.map((titulo) => ({
         id: titulo.id_titulo,
         merito:
-          Number(titulo.prestigio) * meritoRendimiento * factorJerarquia
+         Number(titulo.prestigio) * meritoRendimiento
       }))
     );
 
     if (ganadorColectivo) {
       await registrarTitulo("id_titulo", ganadorColectivo, "colectivo");
     }
+    }
   }
 
   // ============================================================
   // 2. TÍTULO INTERNACIONAL
   // ============================================================
-  // Solo clubes con copa_internacional (los más jerárquicos) compiten,
-  // y el prestigio del torneo exige jerarquía alta.
-  if (idClub && jerarquiaClub && Number(jerarquiaClub) <= 3) {
-    const jerarquia = Math.min(5, Math.max(1, Number(jerarquiaClub)));
+  // Solo clubes con cierta jerarquía (y validaciones por tipo de
+  // torneo) compiten. Los torneos de selecciones exigen estar
+  // convocado (id_seleccion != NULL) y el Mundial tiene chances mínimas.
+  if (idClub) {
+    const jerarquia = Math.min(5, Math.max(1, Number(jerarquiaClub) || 3));
 
     const candidatosInternacionales = await query(
-      `SELECT id_titulo_internacional, nombre, prestigio, continente
-         FROM TituloInternacional
-        WHERE prestigio <= ?
+      `SELECT id_titulo_internacional, nombre, prestigio, continente,
+              tipo_seleccion, jerarquia_minima
+        FROM TituloInternacional
+        WHERE jerarquia_minima IS NULL OR jerarquia_minima <= ?
         ORDER BY prestigio DESC`,
-      [7 - jerarquia * 2] // jerarquía 1 → hasta prestigio 5, jerarquía 3 → hasta 1
+      [jerarquia]
     );
 
+    // Filtro duro de validaciones:
+    // - De selecciones (Mundial, Copa América, Eurocopa): hay que
+    //   estar convocado (id_seleccion != NULL).
+    const elegiblesInternacionales = candidatosInternacionales.filter(
+      (titulo) =>
+        Number(titulo.tipo_seleccion) === 0 ||
+        (idSeleccion !== null && idSeleccion !== undefined && Number(idSeleccion) > 0)
+    );
+
+    if (elegiblesInternacionales.length > 0) {
+      // Igual que en los colectivos: un solo tiro por temporada.
+      const probabilidadInternacional = 0.04 + (jerarquia - 1) * 0.07; // 4% .. 32%
+
+      if (Math.random() < probabilidadInternacional) {
     const meritoInternacional =
       0.5 + notaRendimiento / 12 +
       (golesNuevos / Math.max(1, partidosJugadosTemporada)) * 2;
 
-    const factorJerarquiaInt = 1.5 - (jerarquia - 1) * 0.35; // 1.50 .. 0.80
+    const factorJerarquiaInt = 0.80 + (jerarquia - 1) * 0.175; // 0.80 .. 1.50
 
     const ganadorInternacional = sortearTitulo(
-      candidatosInternacionales.map((titulo) => ({
+      elegiblesInternacionales.map((titulo) => ({
         id: titulo.id_titulo_internacional,
         merito: Number(titulo.prestigio) * meritoInternacional * factorJerarquiaInt
       }))
@@ -1985,17 +2008,30 @@ async function procesarTitulosTemporada({
         "internacional"
       );
     }
+      }
+    }
   }
 
   // ============================================================
   // 3. TÍTULO INDIVIDUAL
   // ============================================================
   // Depende del rendimiento individual de la temporada, no del club.
-  // Un gol o asistencia por partido es el piso para pelear algo.
+  // El Balón de Oro y la Bota de Oro son muy elitistas: exigen
+  // rendimiento excepcional además de la tirada de probabilidad.
   const golPorPartido = golesNuevos / Math.max(1, partidosJugadosTemporada);
   const asistenciaPorPartido =
     asistenciasNuevas / Math.max(1, partidosJugadosTemporada);
 
+  // Un solo tiro: la mayoría de las temporadas no ganás nada.
+  const probabilidadIndividual = Math.min(
+    0.30,
+    Math.max(
+      0.02,
+      (notaRendimiento - 5.5) / 15 + (golPorPartido + asistenciaPorPartido) * 0.25
+    )
+  );
+
+  if (Math.random() < probabilidadIndividual) {
   const candidatosIndividuales = await query(
     `SELECT id_titulo_individual, nombre, prestigio
        FROM TituloIndividual`
@@ -2019,6 +2055,7 @@ async function procesarTitulosTemporada({
       ganadorIndividual,
       "individual"
     );
+  }
   }
 
   return titulosGanados;
@@ -2095,13 +2132,13 @@ function ajustarPesoPorContexto(evento, contexto) {
   if (/puskas|record personal|figura internacional|gol internacional|titular en la seleccion|heredas la n.?10/.test(nombre)) {
     multiplicador *= 0.55 + grl / 100;
   }
-  // Menor número de jerarquía representa club más alto en el esquema actual.
+  // Mayor número de jerarquía representa club más alto en el esquema actual.
   if (jerarquia !== null && /transferencia internacional|premio por rendimiento/.test(nombre)) {
-    multiplicador *= Math.min(1.6, Math.max(0.65, 1.4 - (jerarquia - 1) * 0.08));
+    multiplicador *= Math.min(1.6, Math.max(0.65, 0.8 + (jerarquia - 1) * 0.15));
   }
   // En clubes modestos aumenta la posibilidad de oferta de una categoría superior.
   if (jerarquia !== null && /oferta de primera/.test(nombre)) {
-    multiplicador *= Math.min(2, Math.max(0.5, 0.8 + (jerarquia - 1) * 0.12));
+    multiplicador *= Math.min(2, Math.max(0.5, 1.4 - (jerarquia - 1) * 0.12));
   }
   // Modulación suave de sucesos positivos/negativos según nivel, no exclusión.
   if (categoria === "positivo" && grl >= 75) multiplicador *= 1.1;
