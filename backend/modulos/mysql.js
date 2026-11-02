@@ -51,7 +51,7 @@ exports.realizarQueryInsert = async function (queryString, parametros = []) {
     try {
         connection = await mySql.createConnection(SQL_CONFIGURATION_DATA);
 
-        const [resultado] = await connection.query(queryString, parametros);
+        const [resultado] = await connection.execute(queryString, parametros);
 
         return resultado.insertId;
 
@@ -59,7 +59,7 @@ exports.realizarQueryInsert = async function (queryString, parametros = []) {
         console.log(err);
     } finally {
         if (connection && connection.end) {
-            connection.end();
+            await connection.end();
         }
     }
 }
