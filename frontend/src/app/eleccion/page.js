@@ -19,10 +19,12 @@ export default function EleccionPage() {
 
     const [ligas, setLigas] = useState([]);
     const [clubes, setClubes] = useState([]);
+    const [selecciones, setSelecciones] = useState([]);
     const [jugadores, setJugadores] = useState([]);
 
     const [ligaSeleccionada, setLigaSeleccionada] = useState("");
     const [idClub, setIdClub] = useState("");
+    const [idSeleccion, setIdSeleccion] = useState("");
     const [nombreLeyenda, setNombreLeyenda] = useState("");
 
     const [cargando, setCargando] = useState(true);
@@ -48,11 +50,21 @@ export default function EleccionPage() {
                     throw new Error("No se pudieron cargar los clubes");
                 }
                 return respuesta.json();
+            }),
+
+            fetch("http://localhost:4000/selecciones", {
+                credentials: "include"
+            }).then((respuesta) => {
+                if (!respuesta.ok) {
+                    throw new Error("No se pudieron cargar las selecciones");
+                }
+                return respuesta.json();
             })
         ])
-            .then(([datosLigas, datosClubes]) => {
+            .then(([datosLigas, datosClubes, datosSelecciones]) => {
                 setLigas(datosLigas);
                 setClubes(datosClubes);
+                setSelecciones(datosSelecciones);
             })
             .catch((error) => {
                 console.error(error);
@@ -110,6 +122,10 @@ export default function EleccionPage() {
 
                     if (miEleccion.nombre_leyenda) {
                         setNombreLeyenda(miEleccion.nombre_leyenda);
+                    }
+
+                    if (miEleccion.id_seleccion != null) {
+                        setIdSeleccion(String(miEleccion.id_seleccion));
                     }
                 }
 
@@ -190,6 +206,11 @@ export default function EleccionPage() {
             return;
         }
 
+        if (!idSeleccion) {
+            setError("Elegí la nacionalidad de tu leyenda");
+            return;
+        }
+
         setGuardando(true);
 
         fetch(`http://localhost:4000/partidas/${idPartida}/eleccion`, {
@@ -200,6 +221,7 @@ export default function EleccionPage() {
             credentials: "include",
             body: JSON.stringify({
                 id_club: Number(idClub),
+                id_seleccion: Number(idSeleccion),
                 nombre_leyenda: nombreLeyenda.trim()
             })
         })
@@ -282,6 +304,20 @@ export default function EleccionPage() {
                     {clubesDeLaLiga.map((club) => (
                         <option key={club.id_club} value={club.id_club}>
                             {club.nombre} — Copas internacionales: {club.copa_internacional ?? 0}
+                        </option>
+                    ))}
+                </select>
+
+                <label htmlFor="nacionalidad">Nacionalidad</label>
+                <select
+                    id="nacionalidad"
+                    value={idSeleccion}
+                    onChange={(event) => setIdSeleccion(event.target.value)}
+                >
+                    <option value="">Seleccioná tu nacionalidad</option>
+                    {selecciones.map((seleccion) => (
+                        <option key={seleccion.id_seleccion} value={seleccion.id_seleccion}>
+                            {seleccion.nombre}
                         </option>
                     ))}
                 </select>
