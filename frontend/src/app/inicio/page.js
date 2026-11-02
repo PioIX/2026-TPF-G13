@@ -171,12 +171,22 @@ export default function InicioPage() {
                 )}
 
                 <div className="inicio-acciones">
+                    {usuario.rol === "admin" && (
+                        <Button
+                            type="button"
+                            text="Panel de administración"
+                            onClick={() => router.push("/admin")}
+                        />
+                    )}
+
                     <Button
                         type="button"
                         text="Historial"
                         onClick={() => router.push("/historial")}
                     />
+                </div>
 
+                <div className="inicio-acciones inicio-acciones--centrado">
                     <Button
                         type="button"
                         text="Cerrar sesión"
