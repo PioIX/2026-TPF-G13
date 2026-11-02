@@ -2664,6 +2664,505 @@ app.delete("/admin/eventos/:idEvento", requireAdmin, async (req, res) => {
 });
 
 //
+// GESTIÓN DE TÍTULOS (locales/nacionales, individuales e internacionales)
+// Solo permite consultar, modificar y eliminar (no crear) desde el panel.
+//
+
+// Helpers compartidos por las tres tablas de títulos.
+// Cada tabla tiene su propio id y columnas particulares.
+const TABLAS_TITULOS = {
+  nacionales: {
+    tabla: "Titulo",
+    id: "id_titulo",
+    camposTexto: ["nombre", "pais", "imagen"],
+    camposNumero: ["puntos_campeon", "prestigio"]
+  },
+  individuales: {
+    tabla: "TituloIndividual",
+    id: "id_titulo_individual",
+    camposTexto: ["nombre", "imagen"],
+    camposNumero: ["puntos_campeon", "prestigio"]
+  },
+  internacionales: {
+    tabla: "TituloInternacional",
+    id: "id_titulo_internacional",
+    camposTexto: ["nombre", "continente", "imagen"],
+    camposNumero: ["puntos_campeon", "prestigio"]
+  }
+};
+
+// Valida y normaliza los campos recibidos según la tabla.
+// Devuelve { asignaciones, valores, error }.
+function armarCamposTitulo(config, cuerpo) {
+  const asignaciones = [];
+  const valores = [];
+
+  for (const campo of config.camposTexto) {
+    if (cuerpo[campo] === undefined) continue;
+
+    const texto = String(cuerpo[campo]).trim();
+
+    // nombre y continente son obligatorios; pais e imagen pueden quedar vacíos.
+    const obligatorio = campo === "nombre" || campo === "continente";
+    if (obligatorio && !texto) {
+      return { error: `El campo ${campo} no puede quedar vacío` };
+    }
+
+    asignaciones.push(`${campo} = ?`);
+    valores.push(texto === "" ? null : texto);
+  }
+
+  for (const campo of config.camposNumero) {
+    if (cuerpo[campo] === undefined) continue;
+
+    const numero = Number(cuerpo[campo]);
+    if (!Number.isFinite(numero)) {
+      return { error: `El campo ${campo} debe ser un número` };
+    }
+
+    asignaciones.push(`${campo} = ?`);
+    valores.push(campo === "puntos_campeon" ? Math.trunc(numero) : numero);
+  }
+
+  return { asignaciones, valores };
+}
+
+// LISTAR TÍTULOS
+app.get("/admin/titulos/:tipo", requireAdmin, async (req, res) => {
+  try {
+    const config = TABLAS_TITULOS[req.params.tipo];
+
+    if (!config) {
+      return res.status(400).json({
+        error: "Tipo de título inválido"
+      });
+    }
+
+    const titulos = await mysql.realizarQuery(
+      `SELECT * FROM ${config.tabla} ORDER BY ${config.id} ASC`
+    );
+
+    res.status(200).json(titulos);
+  } catch (error) {
+    console.error("Error al listar títulos:", error);
+
+    res.status(500).json({
+      error: "Error al obtener los títulos"
+    });
+  }
+});
+
+// CONSULTAR UN TÍTULO
+app.get("/admin/titulos/:tipo/:id", requireAdmin, async (req, res) => {
+  try {
+    const config = TABLAS_TITULOS[req.params.tipo];
+    const id = Number(req.params.id);
+
+    if (!config) {
+      return res.status(400).json({ error: "Tipo de título inválido" });
+    }
+
+    if (!Number.isInteger(id) || id <= 0) {
+      return res.status(400).json({ error: "Identificador de título inválido" });
+    }
+
+    const titulos = await mysql.realizarQuery(
+      `SELECT * FROM ${config.tabla} WHERE ${config.id} = ?`,
+      [id]
+    );
+
+    if (titulos.length === 0) {
+      return res.status(404).json({ error: "El título no existe" });
+    }
+
+    res.status(200).json(titulos[0]);
+  } catch (error) {
+    console.error("Error al consultar título:", error);
+
+    res.status(500).json({
+      error: "Error al obtener el título"
+    });
+  }
+});
+
+// MODIFICAR UN TÍTULO
+app.put("/admin/titulos/:tipo/:id", requireAdmin, async (req, res) => {
+  try {
+    const config = TABLAS_TITULOS[req.params.tipo];
+    const id = Number(req.params.id);
+
+    if (!config) {
+      return res.status(400).json({ error: "Tipo de título inválido" });
+    }
+
+    if (!Number.isInteger(id) || id <= 0) {
+      return res.status(400).json({ error: "Identificador de título inválido" });
+    }
+
+    const existentes = await mysql.realizarQuery(
+      `SELECT ${config.id} FROM ${config.tabla} WHERE ${config.id} = ?`,
+      [id]
+    );
+
+    if (existentes.length === 0) {
+      return res.status(404).json({ error: "El título no existe" });
+    }
+
+    const campos = armarCamposTitulo(config, req.body);
+
+    if (campos.error) {
+      return res.status(400).json({ error: campos.error });
+    }
+
+    if (campos.asignaciones.length === 0) {
+      return res.status(400).json({ error: "No hay datos para modificar" });
+    }
+
+    // El nombre no puede repetirse dentro de la misma tabla.
+    if (req.body.nombre !== undefined) {
+      const repetido = await mysql.realizarQuery(
+        `SELECT ${config.id} FROM ${config.tabla} WHERE nombre = ? AND ${config.id} <> ?`,
+        [String(req.body.nombre).trim(), id]
+      );
+
+      if (repetido.length > 0) {
+        return res.status(400).json({
+          error: "Ya existe otro título con ese nombre"
+        });
+      }
+    }
+
+    const valores = [...campos.valores, id];
+
+    await mysql.realizarQuery(
+      `UPDATE ${config.tabla} SET ${campos.asignaciones.join(", ")} WHERE ${config.id} = ?`,
+      valores
+    );
+
+    res.status(200).json({
+      mensaje: "Título modificado correctamente"
+    });
+  } catch (error) {
+    console.error("Error al modificar título:", error);
+
+    res.status(500).json({
+      error: "Error al modificar el título"
+    });
+  }
+});
+
+// ELIMINAR UN TÍTULO
+app.delete("/admin/titulos/:tipo/:id", requireAdmin, async (req, res) => {
+  try {
+    const config = TABLAS_TITULOS[req.params.tipo];
+    const id = Number(req.params.id);
+
+    if (!config) {
+      return res.status(400).json({ error: "Tipo de título inválido" });
+    }
+
+    if (!Number.isInteger(id) || id <= 0) {
+      return res.status(400).json({ error: "Identificador de título inválido" });
+    }
+
+    const existentes = await mysql.realizarQuery(
+      `SELECT ${config.id} FROM ${config.tabla} WHERE ${config.id} = ?`,
+      [id]
+    );
+
+    if (existentes.length === 0) {
+      return res.status(404).json({ error: "El título no existe" });
+    }
+
+    await mysql.realizarQuery(
+      `DELETE FROM ${config.tabla} WHERE ${config.id} = ?`,
+      [id]
+    );
+
+    res.status(200).json({
+      mensaje: "Título eliminado correctamente"
+    });
+  } catch (error) {
+    console.error("Error al eliminar título:", error);
+
+    // El título ya fue otorgado en alguna partida (clave foránea).
+    if (error && error.errno === 1451) {
+      return res.status(409).json({
+        error: "El título ya fue ganado en partidas registradas y no puede eliminarse"
+      });
+    }
+
+    res.status(500).json({
+      error: "Error al eliminar el título"
+    });
+  }
+});
+
+//
+// GESTIÓN DE CLUBES Y LIGAS (solo modificar y eliminar)
+//
+
+// LISTAR CLUBES
+app.get("/admin/clubes", requireAdmin, async (req, res) => {
+  try {
+    const clubes = await mysql.realizarQuery(
+      `SELECT id_club, nombre, liga, jerarquia, copa_internacional, descripcion
+       FROM Club
+       ORDER BY liga ASC, nombre ASC`
+    );
+
+    res.status(200).json(clubes);
+  } catch (error) {
+    console.error("Error al listar clubes:", error);
+
+    res.status(500).json({
+      error: "Error al obtener los clubes"
+    });
+  }
+});
+
+// MODIFICAR UN CLUB
+app.put("/admin/clubes/:idClub", requireAdmin, async (req, res) => {
+  try {
+    const idClub = Number(req.params.idClub);
+
+    if (!Number.isInteger(idClub) || idClub <= 0) {
+      return res.status(400).json({ error: "Identificador de club inválido" });
+    }
+
+    const existentes = await mysql.realizarQuery(
+      "SELECT id_club FROM Club WHERE id_club = ?",
+      [idClub]
+    );
+
+    if (existentes.length === 0) {
+      return res.status(404).json({ error: "El club no existe" });
+    }
+
+    const { nombre, liga, jerarquia, copa_internacional, descripcion } = req.body;
+    const asignaciones = [];
+    const valores = [];
+
+    if (nombre !== undefined) {
+      const texto = String(nombre).trim();
+
+      if (!texto) {
+        return res.status(400).json({
+          error: "El nombre del club no puede quedar vacío"
+        });
+      }
+
+      asignaciones.push("nombre = ?");
+      valores.push(texto);
+    }
+
+    if (liga !== undefined) {
+      const texto = String(liga).trim();
+
+      asignaciones.push("liga = ?");
+      valores.push(texto === "" ? null : texto);
+    }
+
+    if (jerarquia !== undefined) {
+      const numero = Number(jerarquia);
+
+      if (!Number.isFinite(numero)) {
+        return res.status(400).json({
+          error: "La jerarquía debe ser un número"
+        });
+      }
+
+      asignaciones.push("jerarquia = ?");
+      valores.push(Math.trunc(numero));
+    }
+
+    if (copa_internacional !== undefined) {
+      asignaciones.push("copa_internacional = ?");
+      valores.push(copa_internacional ? 1 : 0);
+    }
+
+    if (descripcion !== undefined) {
+      asignaciones.push("descripcion = ?");
+      valores.push(String(descripcion).trim());
+    }
+
+    if (asignaciones.length === 0) {
+      return res.status(400).json({ error: "No hay datos para modificar" });
+    }
+
+    valores.push(idClub);
+
+    await mysql.realizarQuery(
+      `UPDATE Club SET ${asignaciones.join(", ")} WHERE id_club = ?`,
+      valores
+    );
+
+    res.status(200).json({
+      mensaje: "Club modificado correctamente"
+    });
+  } catch (error) {
+    console.error("Error al modificar club:", error);
+
+    res.status(500).json({
+      error: "Error al modificar el club"
+    });
+  }
+});
+
+// ELIMINAR UN CLUB
+app.delete("/admin/clubes/:idClub", requireAdmin, async (req, res) => {
+  try {
+    const idClub = Number(req.params.idClub);
+
+    if (!Number.isInteger(idClub) || idClub <= 0) {
+      return res.status(400).json({ error: "Identificador de club inválido" });
+    }
+
+    const existentes = await mysql.realizarQuery(
+      "SELECT id_club FROM Club WHERE id_club = ?",
+      [idClub]
+    );
+
+    if (existentes.length === 0) {
+      return res.status(404).json({ error: "El club no existe" });
+    }
+
+    await mysql.realizarQuery(
+      "DELETE FROM Club WHERE id_club = ?",
+      [idClub]
+    );
+
+    res.status(200).json({
+      mensaje: "Club eliminado correctamente"
+    });
+  } catch (error) {
+    console.error("Error al eliminar club:", error);
+
+    if (error && error.errno === 1451) {
+      return res.status(409).json({
+        error: "El club está asociado a partidas registradas y no puede eliminarse"
+      });
+    }
+
+    res.status(500).json({
+      error: "Error al eliminar el club"
+    });
+  }
+});
+
+// LISTAR LIGAS (son la columna Club.liga agrupada)
+app.get("/admin/ligas", requireAdmin, async (req, res) => {
+  try {
+    const ligas = await mysql.realizarQuery(
+      `SELECT liga, COUNT(*) AS cantidad_clubes
+       FROM Club
+       WHERE liga IS NOT NULL AND liga <> ''
+       GROUP BY liga
+       ORDER BY liga ASC`
+    );
+
+    res.status(200).json(ligas);
+  } catch (error) {
+    console.error("Error al listar ligas:", error);
+
+    res.status(500).json({
+      error: "Error al obtener las ligas"
+    });
+  }
+});
+
+// RENOMBRAR UNA LIGA (actualiza a todos los clubes que la usan)
+app.put("/admin/ligas/:nombreLiga", requireAdmin, async (req, res) => {
+  try {
+    const nombreLiga = decodeURIComponent(req.params.nombreLiga);
+    const nuevoNombre = String(req.body.nuevo_nombre ?? "").trim();
+
+    if (!nuevoNombre) {
+      return res.status(400).json({
+        error: "El nuevo nombre de la liga no puede quedar vacío"
+      });
+    }
+
+    if (nuevoNombre.length > 100) {
+      return res.status(400).json({
+        error: "El nombre de la liga no puede superar los 100 caracteres"
+      });
+    }
+
+    const clubes = await mysql.realizarQuery(
+      "SELECT id_club FROM Club WHERE liga = ?",
+      [nombreLiga]
+    );
+
+    if (clubes.length === 0) {
+      return res.status(404).json({ error: "La liga no existe" });
+    }
+
+    if (nuevoNombre !== nombreLiga) {
+      const colision = await mysql.realizarQuery(
+        "SELECT id_club FROM Club WHERE liga = ? LIMIT 1",
+        [nuevoNombre]
+      );
+
+      if (colision.length > 0) {
+        return res.status(409).json({
+          error: "Ya existe otra liga con ese nombre"
+        });
+      }
+    }
+
+    await mysql.realizarQuery(
+      "UPDATE Club SET liga = ? WHERE liga = ?",
+      [nuevoNombre, nombreLiga]
+    );
+
+    res.status(200).json({
+      mensaje: `Liga renombrada para ${clubes.length} club(es)`,
+      cantidad_clubes: clubes.length,
+      nombre_ligas: nuevoNombre
+    });
+  } catch (error) {
+    console.error("Error al renombrar liga:", error);
+
+    res.status(500).json({
+      error: "Error al modificar la liga"
+    });
+  }
+});
+
+// ELIMINAR UNA LIGA (deja a los clubes sin liga)
+app.delete("/admin/ligas/:nombreLiga", requireAdmin, async (req, res) => {
+  try {
+    const nombreLiga = decodeURIComponent(req.params.nombreLiga);
+
+    const clubes = await mysql.realizarQuery(
+      "SELECT id_club FROM Club WHERE liga = ?",
+      [nombreLiga]
+    );
+
+    if (clubes.length === 0) {
+      return res.status(404).json({ error: "La liga no existe" });
+    }
+
+    await mysql.realizarQuery(
+      "UPDATE Club SET liga = NULL WHERE liga = ?",
+      [nombreLiga]
+    );
+
+    res.status(200).json({
+      mensaje: `Liga eliminada. ${clubes.length} club(es) quedaron sin liga.`,
+      cantidad_clubes: clubes.length
+    });
+  } catch (error) {
+    console.error("Error al eliminar liga:", error);
+
+    res.status(500).json({
+      error: "Error al eliminar la liga"
+    });
+  }
+});
+
+//
 // CONSULTA DE PARTIDAS (solo lectura para el admin)
 //
 
