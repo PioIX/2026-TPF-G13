@@ -36,7 +36,27 @@ io.use((socket, next) => {
 
 const mysql = require("./modulos/mysql");
 
-//PEDIDOS 
+//
+// MIDDLEWARE DE ADMINISTRADOR
+// Verifica que la sesión tenga un usuario con rol admin.
+// Se usa en todas las rutas de gestión del panel de administración.
+function requireAdmin(req, res, next) {
+  if (!req.session.usuario) {
+    return res.status(401).json({
+      error: "Tenés que iniciar sesión"
+    });
+  }
+
+  if (req.session.usuario.rol !== "admin") {
+    return res.status(403).json({
+      error: "Solo el administrador puede realizar esta acción"
+    });
+  }
+
+  next();
+}
+
+// PEDIDOS  
 // OBTENER TODOS LOS CLUBES
 
 // OBTENER TODOS LOS CLUBES
@@ -414,9 +434,11 @@ app.post("/partidas/:idPartida/cambioClub", async (req, res) => {
 app.post("/registro", async (req, res) => {
   try {
     const { nombre_usuario, email, contrasena } = req.body;
+    const nombre = typeof nombre_usuario === "string" ? nombre_usuario.trim() : "";
+    const correo = typeof email === "string" ? email.trim().toLowerCase() : "";
 
     // Verificamos que estén todos los datos
-    if (!nombre_usuario || !email || !contrasena) {
+    if (!nombre || !correo || !contrasena) {
       return res.status(400).json({
         error: "Faltan datos"
       });
@@ -424,8 +446,8 @@ app.post("/registro", async (req, res) => {
 
     // Verificamos si ya existe un usuario con ese email
     const usuarioExistente = await mysql.realizarQuery(
-      `SELECT id_usuario FROM Usuario WHERE email = ?`,
-      [email]
+      "SELECT id_usuario FROM Usuario WHERE email = ?",
+      [correo]
     );
 
     if (usuarioExistente.length > 0) {
@@ -434,11 +456,10 @@ app.post("/registro", async (req, res) => {
       });
     }
 
-    // Insertamos el nuevo usuario
+    // Insertamos el nuevo usuario. El rol no se toma del request: siempre será jugador.
     await mysql.realizarQuery(
-      `INSERT INTO Usuario (nombre_usuario, email, contrasena)
-       VALUES (?, ?, ?)`,
-      [nombre_usuario, email, contrasena]
+      "INSERT INTO Usuario (nombre_usuario, email, contrasena, rol) VALUES (?, ?, 'jugador')",
+      [nombre, correo, contrasena]
     );
 
     res.status(201).json({
@@ -455,13 +476,74 @@ app.post("/registro", async (req, res) => {
 });
 
 //
+// CREACIÓN DE USUARIO ADMINISTRADOR
+// Solo permite crear el admin mientras no exista ninguno,
+// para que no quede un registro público de administradores.
+app.post("/admin", async (req, res) => {
+  try {
+    const { nombre_usuario, email, contrasena } = req.body;
+    const nombre = typeof nombre_usuario === "string" ? nombre_usuario.trim() : "";
+    const correo = typeof email === "string" ? email.trim().toLowerCase() : "";
+
+    // Verificamos que estén todos los datos
+    if (!nombre || !correo || !contrasena) {
+      return res.status(400).json({
+        error: "Faltan datos"
+      });
+    }
+
+    // Solo puede existir un administrador.
+    const administradores = await mysql.realizarQuery(
+      "SELECT id_usuario FROM Usuario WHERE rol = ?",
+      ["admin"]
+    );
+
+    if (administradores.length > 0) {
+      return res.status(409).json({
+        error: "Ya existe un administrador"
+      });
+    }
+
+    // Verificamos si ya existe un usuario con ese email
+    const usuarioExistente = await mysql.realizarQuery(
+      "SELECT id_usuario FROM Usuario WHERE email = ?",
+      [correo]
+    );
+
+    if (usuarioExistente.length > 0) {
+      return res.status(400).json({
+        error: "El email ya está registrado"
+      });
+    }
+
+    // Insertamos el administrador
+    await mysql.realizarQuery(
+      "INSERT INTO Usuario (nombre_usuario, email, contrasena, rol) VALUES (?, ?, ?, 'admin')",
+      [nombre, correo, contrasena]
+    );
+
+    res.status(201).json({
+      mensaje: "Administrador creado correctamente"
+    });
+
+  } catch (error) {
+    console.error("Error al crear administrador:", error);
+
+    res.status(500).json({
+      error: "Error al crear administrador"
+    });
+  }
+});
+
+//
 // LOGIN DE USUARIO
 app.post("/login", async (req, res) => {
   try {
     const { email, contrasena } = req.body;
+    const correo = typeof email === "string" ? email.trim().toLowerCase() : "";
 
     // Verificamos que estén todos los datos
-    if (!email || !contrasena) {
+    if (!correo || !contrasena) {
       return res.status(400).json({
         error: "Faltan datos"
       });
@@ -469,8 +551,8 @@ app.post("/login", async (req, res) => {
 
     // Buscamos el usuario por email
     const usuarios = await mysql.realizarQuery(
-      `SELECT * FROM Usuario WHERE email = ?`,
-      [email]
+      "SELECT * FROM Usuario WHERE email = ?",
+      [correo]
     );
 
     // Si no existe
@@ -1754,3 +1836,634 @@ function ajustarPesoPorContexto(evento, contexto) {
 
 
 
+
+//
+// ============================================================================
+// RUTAS DEL PANEL DE ADMINISTRACIÓN
+// Todas requieren sesión iniciada con rol "admin" (middleware requireAdmin).
+// ============================================================================
+//
+
+//
+// GESTIÓN DE USUARIOS
+//
+
+// LISTAR USUARIOS (sin mostrar contraseñas)
+app.get("/admin/usuarios", requireAdmin, async (req, res) => {
+  try {
+    const usuarios = await mysql.realizarQuery(
+      `SELECT id_usuario, nombre_usuario, email, rol, fecha_registro
+       FROM Usuario
+       ORDER BY id_usuario ASC`
+    );
+
+    res.status(200).json(usuarios);
+  } catch (error) {
+    console.error("Error al listar usuarios:", error);
+
+    res.status(500).json({
+      error: "Error al obtener los usuarios"
+    });
+  }
+});
+
+// CONSULTAR UN USUARIO
+app.get("/admin/usuarios/:idUsuario", requireAdmin, async (req, res) => {
+  try {
+    const idUsuario = Number(req.params.idUsuario);
+
+    if (!Number.isInteger(idUsuario) || idUsuario <= 0) {
+      return res.status(400).json({
+        error: "Identificador de usuario inválido"
+      });
+    }
+
+    const usuarios = await mysql.realizarQuery(
+      `SELECT id_usuario, nombre_usuario, email, rol, fecha_registro
+       FROM Usuario
+       WHERE id_usuario = ?`,
+      [idUsuario]
+    );
+
+    if (usuarios.length === 0) {
+      return res.status(404).json({
+        error: "El usuario no existe"
+      });
+    }
+
+    res.status(200).json(usuarios[0]);
+  } catch (error) {
+    console.error("Error al consultar usuario:", error);
+
+    res.status(500).json({
+      error: "Error al obtener el usuario"
+    });
+  }
+});
+
+// MODIFICAR UN USUARIO (nombre, email y/o rol)
+app.put("/admin/usuarios/:idUsuario", requireAdmin, async (req, res) => {
+  try {
+    const idUsuario = Number(req.params.idUsuario);
+    const { nombre_usuario, email, rol } = req.body;
+
+    if (!Number.isInteger(idUsuario) || idUsuario <= 0) {
+      return res.status(400).json({
+        error: "Identificador de usuario inválido"
+      });
+    }
+
+    const usuarios = await mysql.realizarQuery(
+      "SELECT id_usuario, rol FROM Usuario WHERE id_usuario = ?",
+      [idUsuario]
+    );
+
+    if (usuarios.length === 0) {
+      return res.status(404).json({
+        error: "El usuario no existe"
+      });
+    }
+
+    // No permitimos que el admin quite su propio rol admin
+    // ni se elimine a sí mismo si es el único administrador.
+    if (usuarios[0].rol === "admin" && usuarios[0].id_usuario === req.session.usuario.id_usuario) {
+      if (rol && rol !== "admin") {
+        return res.status(400).json({
+          error: "No podés quitarte tu propio rol de administrador"
+        });
+      }
+    }
+
+    if (rol && rol !== "jugador" && rol !== "admin") {
+      return res.status(400).json({
+        error: "El rol solo puede ser jugador o admin"
+      });
+    }
+
+    const campos = [];
+    const valores = [];
+
+    if (nombre_usuario !== undefined) {
+      const nombre = String(nombre_usuario).trim();
+      if (!nombre || nombre.length > 50) {
+        return res.status(400).json({
+          error: "El nombre de usuario debe tener entre 1 y 50 caracteres"
+        });
+      }
+      campos.push("nombre_usuario = ?");
+      valores.push(nombre);
+    }
+
+    if (email !== undefined) {
+      const correo = String(email).trim().toLowerCase();
+      if (!correo || correo.length > 100) {
+        return res.status(400).json({
+          error: "El email debe tener entre 1 y 100 caracteres"
+        });
+      }
+
+      // Verificamos que el nuevo email no lo use otro usuario.
+      const emailEnUso = await mysql.realizarQuery(
+        "SELECT id_usuario FROM Usuario WHERE email = ? AND id_usuario <> ?",
+        [correo, idUsuario]
+      );
+
+      if (emailEnUso.length > 0) {
+        return res.status(400).json({
+          error: "Ese email ya está registrado por otro usuario"
+        });
+      }
+
+      campos.push("email = ?");
+      valores.push(correo);
+    }
+
+    if (rol !== undefined) {
+      campos.push("rol = ?");
+      valores.push(rol);
+    }
+
+    if (campos.length === 0) {
+      return res.status(400).json({
+        error: "No hay datos para modificar"
+      });
+    }
+
+    valores.push(idUsuario);
+
+    await mysql.realizarQuery(
+      `UPDATE Usuario SET ${campos.join(", ")} WHERE id_usuario = ?`,
+      valores
+    );
+
+    res.status(200).json({
+      mensaje: "Usuario modificado correctamente"
+    });
+  } catch (error) {
+    console.error("Error al modificar usuario:", error);
+
+    res.status(500).json({
+      error: "Error al modificar el usuario"
+    });
+  }
+});
+
+// ELIMINAR UN USUARIO
+app.delete("/admin/usuarios/:idUsuario", requireAdmin, async (req, res) => {
+  try {
+    const idUsuario = Number(req.params.idUsuario);
+
+    if (!Number.isInteger(idUsuario) || idUsuario <= 0) {
+      return res.status(400).json({
+        error: "Identificador de usuario inválido"
+      });
+    }
+
+    if (idUsuario === Number(req.session.usuario.id_usuario)) {
+      return res.status(400).json({
+        error: "No podés eliminar tu propia cuenta"
+      });
+    }
+
+    const usuarios = await mysql.realizarQuery(
+      "SELECT id_usuario FROM Usuario WHERE id_usuario = ?",
+      [idUsuario]
+    );
+
+    if (usuarios.length === 0) {
+      return res.status(404).json({
+        error: "El usuario no existe"
+      });
+    }
+
+    await mysql.realizarQuery(
+      "DELETE FROM Usuario WHERE id_usuario = ?",
+      [idUsuario]
+    );
+
+    res.status(200).json({
+      mensaje: "Usuario eliminado correctamente"
+    });
+  } catch (error) {
+    console.error("Error al eliminar usuario:", error);
+
+    // Si el usuario participó de partidas, la clave foránea impide el borrado.
+    if (error && error.errno === 1451) {
+      return res.status(409).json({
+        error: "El usuario participa de partidas registradas y no puede eliminarse"
+      });
+    }
+
+    res.status(500).json({
+      error: "Error al eliminar el usuario"
+    });
+  }
+});
+
+//
+// GESTIÓN DE EVENTOS
+//
+
+// LISTAR EVENTOS
+app.get("/admin/eventos", requireAdmin, async (req, res) => {
+  try {
+    const eventos = await mysql.realizarQuery(
+      `SELECT id_evento, nombre, descripcion, categoria,
+              efecto_fama, efecto_plata, efecto_idolatria,
+              bloquea_avance, peso, turnos_perdidos,
+              temporada_minima, temporada_maxima,
+              requiere_lesion, requiere_seleccion,
+              bloquea_si_lesionado, cooldown_temporadas
+       FROM Evento
+       ORDER BY id_evento ASC`
+    );
+
+    res.status(200).json(eventos);
+  } catch (error) {
+    console.error("Error al listar eventos:", error);
+
+    res.status(500).json({
+      error: "Error al obtener los eventos"
+    });
+  }
+});
+
+// CONSULTAR UN EVENTO
+app.get("/admin/eventos/:idEvento", requireAdmin, async (req, res) => {
+  try {
+    const idEvento = Number(req.params.idEvento);
+
+    if (!Number.isInteger(idEvento) || idEvento <= 0) {
+      return res.status(400).json({
+        error: "Identificador de evento inválido"
+      });
+    }
+
+    const eventos = await mysql.realizarQuery(
+      "SELECT * FROM Evento WHERE id_evento = ?",
+      [idEvento]
+    );
+
+    if (eventos.length === 0) {
+      return res.status(404).json({
+        error: "El evento no existe"
+      });
+    }
+
+    res.status(200).json(eventos[0]);
+  } catch (error) {
+    console.error("Error al consultar evento:", error);
+
+    res.status(500).json({
+      error: "Error al obtener el evento"
+    });
+  }
+});
+
+// CREAR UN EVENTO
+app.post("/admin/eventos", requireAdmin, async (req, res) => {
+  try {
+    const {
+      nombre, descripcion, categoria,
+      efecto_fama, efecto_plata, efecto_idolatria,
+      bloquea_avance, peso, turnos_perdidos
+    } = req.body;
+
+    if (!nombre || !descripcion || !categoria) {
+      return res.status(400).json({
+        error: "Faltan datos obligatorios del evento (nombre, descripcion, categoria)"
+      });
+    }
+
+    const nombreEvento = String(nombre).trim();
+    const descripcionEvento = String(descripcion).trim();
+    const categoriaEvento = String(categoria).trim();
+
+    if (nombreEvento.length > 100) {
+      return res.status(400).json({
+        error: "El nombre no puede superar los 100 caracteres"
+      });
+    }
+
+    // Verificamos que no exista otro evento con el mismo nombre.
+    const eventoExistente = await mysql.realizarQuery(
+      "SELECT id_evento FROM Evento WHERE nombre = ?",
+      [nombreEvento]
+    );
+
+    if (eventoExistente.length > 0) {
+      return res.status(400).json({
+        error: "Ya existe un evento con ese nombre"
+      });
+    }
+
+    const idEvento = await mysql.realizarQueryInsert(
+      `INSERT INTO Evento
+        (nombre, descripcion, categoria,
+         efecto_fama, efecto_plata, efecto_idolatria,
+         bloquea_avance, peso, turnos_perdidos)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        nombreEvento,
+        descripcionEvento,
+        categoriaEvento,
+        Number(efecto_fama) || 0,
+        Number(efecto_plata) || 0,
+        Number(efecto_idolatria) || 0,
+        bloquea_avance ? 1 : 0,
+        Number(peso) > 0 ? Number(peso) : 10,
+        Math.max(0, Number(turnos_perdidos) || 0)
+      ]
+    );
+
+    res.status(201).json({
+      mensaje: "Evento creado correctamente",
+      id_evento: idEvento
+    });
+  } catch (error) {
+    console.error("Error al crear evento:", error);
+
+    res.status(500).json({
+      error: "Error al crear el evento"
+    });
+  }
+});
+
+// MODIFICAR UN EVENTO
+app.put("/admin/eventos/:idEvento", requireAdmin, async (req, res) => {
+  try {
+    const idEvento = Number(req.params.idEvento);
+
+    if (!Number.isInteger(idEvento) || idEvento <= 0) {
+      return res.status(400).json({
+        error: "Identificador de evento inválido"
+      });
+    }
+
+    const eventos = await mysql.realizarQuery(
+      "SELECT id_evento FROM Evento WHERE id_evento = ?",
+      [idEvento]
+    );
+
+    if (eventos.length === 0) {
+      return res.status(404).json({
+        error: "El evento no existe"
+      });
+    }
+
+    // Armamos dinámicamente solo los campos que llegaron en el pedido.
+    const camposPermitidos = {
+      nombre: "nombre",
+      descripcion: "descripcion",
+      categoria: "categoria",
+      efecto_fama: "efecto_fama",
+      efecto_plata: "efecto_plata",
+      efecto_idolatria: "efecto_idolatria",
+      bloquea_avance: "bloquea_avance",
+      peso: "peso",
+      turnos_perdidos: "turnos_perdidos"
+    };
+
+    const asignaciones = [];
+    const valores = [];
+
+    for (const [clave, columna] of Object.entries(camposPermitidos)) {
+      if (req.body[clave] === undefined) continue;
+
+      if (clave === "nombre") {
+        const nombreEvento = String(req.body.nombre).trim();
+        if (!nombreEvento || nombreEvento.length > 100) {
+          return res.status(400).json({
+            error: "El nombre debe tener entre 1 y 100 caracteres"
+          });
+        }
+
+        const repetido = await mysql.realizarQuery(
+          "SELECT id_evento FROM Evento WHERE nombre = ? AND id_evento <> ?",
+          [nombreEvento, idEvento]
+        );
+
+        if (repetido.length > 0) {
+          return res.status(400).json({
+            error: "Ya existe otro evento con ese nombre"
+          });
+        }
+
+        asignaciones.push(`${columna} = ?`);
+        valores.push(nombreEvento);
+        continue;
+      }
+
+      if (clave === "descripcion" || clave === "categoria") {
+        const texto = String(req.body[clave]).trim();
+        if (!texto) {
+          return res.status(400).json({
+            error: `El campo ${clave} no puede quedar vacío`
+          });
+        }
+
+        asignaciones.push(`${columna} = ?`);
+        valores.push(texto);
+        continue;
+      }
+
+      // Campos numéricos / booleanos.
+      if (clave === "bloquea_avance") {
+        asignaciones.push(`${columna} = ?`);
+        valores.push(req.body[clave] ? 1 : 0);
+      } else {
+        asignaciones.push(`${columna} = ?`);
+        valores.push(Number(req.body[clave]) || 0);
+      }
+    }
+
+    if (asignaciones.length === 0) {
+      return res.status(400).json({
+        error: "No hay datos para modificar"
+      });
+    }
+
+    valores.push(idEvento);
+
+    await mysql.realizarQuery(
+      `UPDATE Evento SET ${asignaciones.join(", ")} WHERE id_evento = ?`,
+      valores
+    );
+
+    res.status(200).json({
+      mensaje: "Evento modificado correctamente"
+    });
+  } catch (error) {
+    console.error("Error al modificar evento:", error);
+
+    res.status(500).json({
+      error: "Error al modificar el evento"
+    });
+  }
+});
+
+// ELIMINAR UN EVENTO
+app.delete("/admin/eventos/:idEvento", requireAdmin, async (req, res) => {
+  try {
+    const idEvento = Number(req.params.idEvento);
+
+    if (!Number.isInteger(idEvento) || idEvento <= 0) {
+      return res.status(400).json({
+        error: "Identificador de evento inválido"
+      });
+    }
+
+    const eventos = await mysql.realizarQuery(
+      "SELECT id_evento FROM Evento WHERE id_evento = ?",
+      [idEvento]
+    );
+
+    if (eventos.length === 0) {
+      return res.status(404).json({
+        error: "El evento no existe"
+      });
+    }
+
+    // No se puede eliminar si ya ocurrió en alguna partida (clave foránea).
+    await mysql.realizarQuery(
+      "DELETE FROM Evento WHERE id_evento = ?",
+      [idEvento]
+    );
+
+    res.status(200).json({
+      mensaje: "Evento eliminado correctamente"
+    });
+  } catch (error) {
+    console.error("Error al eliminar evento:", error);
+
+    if (error && error.errno === 1451) {
+      return res.status(409).json({
+        error: "El evento ya ocurrió en partidas registradas y no puede eliminarse"
+      });
+    }
+
+    res.status(500).json({
+      error: "Error al eliminar el evento"
+    });
+  }
+});
+
+//
+// CONSULTA DE PARTIDAS (solo lectura para el admin)
+//
+
+// LISTAR TODAS LAS PARTIDAS
+app.get("/admin/partidas", requireAdmin, async (req, res) => {
+  try {
+    const partidas = await mysql.realizarQuery(
+      `SELECT
+          p.id_partida,
+          p.nombre_sala,
+          p.estado,
+          p.fecha_inicio,
+          p.fecha_fin,
+          u.nombre_usuario AS nombre_ganador,
+          COUNT(pp.id_participante) AS cantidad_participantes
+       FROM Partida p
+       LEFT JOIN Usuario u ON u.id_usuario = p.id_ganador
+       LEFT JOIN ParticipantePartida pp ON pp.id_partida = p.id_partida
+       GROUP BY p.id_partida, p.nombre_sala, p.estado,
+                p.fecha_inicio, p.fecha_fin, u.nombre_usuario
+       ORDER BY p.fecha_inicio DESC`
+    );
+
+    res.status(200).json(partidas);
+  } catch (error) {
+    console.error("Error al listar partidas:", error);
+
+    res.status(500).json({
+      error: "Error al obtener las partidas"
+    });
+  }
+});
+
+// CONSULTAR EL DETALLE DE UNA PARTIDA
+app.get("/admin/partidas/:idPartida", requireAdmin, async (req, res) => {
+  try {
+    const idPartida = Number(req.params.idPartida);
+
+    if (!Number.isInteger(idPartida) || idPartida <= 0) {
+      return res.status(400).json({
+        error: "Identificador de partida inválido"
+      });
+    }
+
+    const partidas = await mysql.realizarQuery(
+      `SELECT
+          p.id_partida,
+          p.nombre_sala,
+          p.estado,
+          p.fecha_inicio,
+          p.fecha_fin,
+          u.nombre_usuario AS nombre_ganador
+       FROM Partida p
+       LEFT JOIN Usuario u ON u.id_usuario = p.id_ganador
+       WHERE p.id_partida = ?`,
+      [idPartida]
+    );
+
+    if (partidas.length === 0) {
+      return res.status(404).json({
+        error: "La partida no existe"
+      });
+    }
+
+    // Participantes y sus estadísticas finales.
+    const participantes = await mysql.realizarQuery(
+      `SELECT
+          pp.id_participante,
+          pp.id_usuario,
+          u.nombre_usuario,
+          pp.nombre_leyenda,
+          pp.posicion_actual,
+          pp.goles,
+          pp.asistencias,
+          pp.fama,
+          pp.plata,
+          pp.idolatria,
+          pp.turno
+       FROM ParticipantePartida pp
+       INNER JOIN Usuario u ON u.id_usuario = pp.id_usuario
+       WHERE pp.id_partida = ?`,
+      [idPartida]
+    );
+
+    // Eventos que ocurrieron durante la partida, si la tabla existe.
+    let eventos = [];
+    try {
+      eventos = await mysql.realizarQuery(
+        `SELECT
+            hp.id_evento,
+            e.nombre AS nombre_evento,
+            hp.posicion
+         FROM HistorialEvento hp
+         INNER JOIN Evento e ON e.id_evento = hp.id_evento
+         WHERE hp.id_participante IN (
+             SELECT id_participante FROM ParticipantePartida WHERE id_partida = ?
+         )
+         ORDER BY hp.posicion ASC`,
+        [idPartida]
+      );
+    } catch (errorHistorial) {
+      // Si la tabla de historial no existe en el esquema, seguimos sin eventos.
+      eventos = [];
+    }
+
+    res.status(200).json({
+      partida: partidas[0],
+      participantes,
+      eventos
+    });
+  } catch (error) {
+    console.error("Error al consultar partida:", error);
+
+    res.status(500).json({
+      error: "Error al obtener la partida"
+    });
+  }
+});
