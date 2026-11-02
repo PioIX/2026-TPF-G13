@@ -9,6 +9,7 @@ import Button from "@/components/Button";
 import PanelJugador from "@/components/PanelJugador";
 import PopupEvento from "@/components/PopupEvento";
 import PopupRendimiento from "@/components/PopupRendimiento";
+import PopupTitulo from "@/components/PopupTitulo";
 import PopupCambioClub from "@/components/PopupCambioClub";
 
 export default function PartidaPage() {
@@ -25,6 +26,8 @@ export default function PartidaPage() {
     const [mostrarEvento, setMostrarEvento] = useState(false);
     const [rendimientoActual, setRendimientoActual] = useState(null);
     const [mostrarRendimiento, setMostrarRendimiento] = useState(false);
+    const [titulosGanados, setTitulosGanados] = useState([]);
+    const [mostrarTitulos, setMostrarTitulos] = useState(false);
     const [tirandoDado, setTirandoDado] = useState(false);
     const [resultadoMostrado, setResultadoMostrado] = useState(null);
     const [cambioClubPendiente, setCambioClubPendiente] = useState(null);
@@ -101,6 +104,7 @@ export default function PartidaPage() {
                 socket.on("estadoPartidaActualizado", (estado) => {
                     if (Number(estado.idUsuarioQueJugo) === idUsuarioActual) {
                         setRendimientoActual(estado.rendimiento ?? null);
+                        setTitulosGanados(estado.rendimiento?.titulos ?? []);
                     }
                     if (Number(estado.idUsuarioQueJugo) === idUsuarioActual) {
                         const tiempoRestante = Math.max(
@@ -313,13 +317,28 @@ export default function PartidaPage() {
 
                     if (rendimientoActual) {
                         setMostrarRendimiento(true);
+                    } else if (titulosGanados.length > 0) {
+                        setMostrarTitulos(true);
                     }
                 }}
             />
 
             <PopupRendimiento
                 rendimiento={mostrarRendimiento ? rendimientoActual : null}
-                onCerrar={() => setMostrarRendimiento(false)}
+                onCerrar={() => {
+                    setMostrarRendimiento(false);
+
+                    // Después del rendimiento de la temporada, si hubo
+                    // títulos ganados, se celebra con su propio popup.
+                    if (titulosGanados.length > 0) {
+                        setMostrarTitulos(true);
+                    }
+                }}
+            />
+
+            <PopupTitulo
+                titulos={mostrarTitulos ? titulosGanados : null}
+                onCerrar={() => setMostrarTitulos(false)}
             />
 
             <PopupCambioClub
