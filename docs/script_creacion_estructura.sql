@@ -63,13 +63,55 @@ CREATE TABLE Titulo (
     id_titulo INT AUTO_INCREMENT PRIMARY KEY,
     nombre VARCHAR(100) NOT NULL,
     pais VARCHAR(100),
-    valor INT,
-    es_individual BOOLEAN NOT NULL DEFAULT FALSE,
-    id_casillero INT NULL,
+    puntos_campeon INT NOT NULL,
+    prestigio TINYINT NOT NULL DEFAULT 1,
+    imagen VARCHAR(255) NULL
+);
 
-    CONSTRAINT fk_titulo_casillero
-        FOREIGN KEY (id_casillero)
-        REFERENCES Casillero(id_casillero)
+
+CREATE TABLE TituloIndividual (
+    id_titulo_individual INT AUTO_INCREMENT PRIMARY KEY,
+    nombre VARCHAR(100) NOT NULL,
+    puntos_campeon INT NOT NULL,
+    prestigio TINYINT NOT NULL DEFAULT 1,
+    imagen VARCHAR(255) NULL
+);
+
+
+CREATE TABLE TituloInternacional (
+    id_titulo_internacional INT AUTO_INCREMENT PRIMARY KEY,
+    nombre VARCHAR(100) NOT NULL,
+    puntos_campeon INT NOT NULL,
+    prestigio TINYINT NOT NULL DEFAULT 1,
+    continente VARCHAR(50) NOT NULL,
+    imagen VARCHAR(255) NULL
+);
+
+
+CREATE TABLE TituloGanado (
+    id_titulo_ganado INT AUTO_INCREMENT PRIMARY KEY,
+    id_participante INT NOT NULL,
+    id_titulo INT NULL,
+    id_titulo_individual INT NULL,
+    id_titulo_internacional INT NULL,
+    temporada INT NOT NULL,
+    fecha DATETIME DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT fk_titulo_ganado_participante
+        FOREIGN KEY (id_participante)
+        REFERENCES ParticipantePartida(id_participante),
+
+    CONSTRAINT fk_titulo_ganado_titulo
+        FOREIGN KEY (id_titulo)
+        REFERENCES Titulo(id_titulo),
+
+    CONSTRAINT fk_titulo_ganado_individual
+        FOREIGN KEY (id_titulo_individual)
+        REFERENCES TituloIndividual(id_titulo_individual),
+
+    CONSTRAINT fk_titulo_ganado_internacional
+        FOREIGN KEY (id_titulo_internacional)
+        REFERENCES TituloInternacional(id_titulo_internacional)
 );
 
 
@@ -87,6 +129,8 @@ CREATE TABLE ParticipantePartida (
     id_usuario INT NOT NULL,
     id_club INT NULL,
     id_titulo INT NULL,
+    id_titulo_individual INT NULL,
+    id_titulo_internacional INT NULL,
     id_seleccion INT NULL,
     puntos_campeon INT NOT NULL DEFAULT 0,
     goles INT NOT NULL DEFAULT 0,
@@ -108,6 +152,14 @@ CREATE TABLE ParticipantePartida (
     CONSTRAINT fk_participante_titulo
         FOREIGN KEY (id_titulo)
         REFERENCES Titulo(id_titulo),
+
+    CONSTRAINT fk_participante_titulo_individual
+        FOREIGN KEY (id_titulo_individual)
+        REFERENCES TituloIndividual(id_titulo_individual),
+
+    CONSTRAINT fk_participante_titulo_internacional
+        FOREIGN KEY (id_titulo_internacional)
+        REFERENCES TituloInternacional(id_titulo_internacional),
 
     CONSTRAINT fk_participante_seleccion
         FOREIGN KEY (id_seleccion)

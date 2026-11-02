@@ -1546,6 +1546,48 @@ io.on("connection", (socket) => {
             ]
           );
 
+          // Al cerrar la temporada, sorteamos si el jugador ganó algún
+          // título (colectivo, internacional e individual).
+          const titulosGanados = await procesarTitulosTemporada({
+            idParticipante: jugador.id_participante,
+            idClub: jugador.id_club,
+            jerarquiaClub: jerarquiaClub,
+            notaRendimiento,
+            golesNuevos,
+            asistenciasNuevas,
+            partidosJugadosTemporada,
+            temporada: nuevaPosicion
+          });
+
+          // El último título de cada tipo queda en ParticipantePartida
+          // para mostrarlo en el panel del jugador.
+          for (const tituloGanado of titulosGanados) {
+            if (tituloGanado.tipo === "colectivo") {
+              await query(
+                `UPDATE ParticipantePartida
+                    SET id_titulo = ?
+                  WHERE id_participante = ?`,
+                [tituloGanado.id_titulo, jugador.id_participante]
+              );
+            } else if (tituloGanado.tipo === "internacional") {
+              await query(
+                `UPDATE ParticipantePartida
+                    SET id_titulo_internacional = ?
+                  WHERE id_participante = ?`,
+                [tituloGanado.id_titulo_internacional,
+                  jugador.id_participante]
+              );
+            } else if (tituloGanado.tipo === "individual") {
+              await query(
+                `UPDATE ParticipantePartida
+                    SET id_titulo_individual = ?
+                  WHERE id_participante = ?`,
+                [tituloGanado.id_titulo_individual,
+                  jugador.id_participante]
+              );
+            }
+          }
+
           if (cooldownDisponible && Number(evento.cooldown_temporadas) > 0) {
             await query(
               `INSERT INTO EstadoCarreraEvento
@@ -1641,7 +1683,8 @@ io.on("connection", (socket) => {
               goles: golesNuevos,
               asistencias: asistenciasNuevas,
               partidos: partidosJugadosTemporada,
-              nota: notaRendimiento
+              nota: notaRendimiento,
+              titulos: titulosGanados
             },
 
             jugadores: jugadoresActualizados,
@@ -1733,7 +1776,15 @@ async function obtenerJugadores(query, idPartida) {
             u.nombre_usuario,
             c.nombre AS nombre_club,
             c.liga,
-            t.nombre AS nombre_titulo
+            t.nombre AS nombre_titulo,
+            t.imagen AS imagen_titulo,
+            t.prestigio AS prestigio_titulo,
+            ti.nombre AS nombre_titulo_individual,
+            ti.imagen AS imagen_titulo_individual,
+            ti.prestigio AS prestigio_titulo_individual,
+            tint.nombre AS nombre_titulo_internacional,
+            tint.imagen AS imagen_titulo_internacional,
+            tint.prestigio AS prestigio_titulo_internacional
          FROM ParticipantePartida pp
          INNER JOIN Usuario u
             ON pp.id_usuario = u.id_usuario
@@ -1741,9 +1792,234 @@ async function obtenerJugadores(query, idPartida) {
             ON pp.id_club = c.id_club
          LEFT JOIN Titulo t
             ON pp.id_titulo = t.id_titulo
+         LEFT JOIN TituloIndividual ti
+            ON pp.id_titulo_individual = ti.id_titulo_individual
+         LEFT JOIN TituloInternacional tint
+            ON pp.id_titulo_internacional = tint.id_titulo_internacional
          WHERE pp.id_partida = ?`,
     [idPartida]
   );
+}
+
+/**
+ * TÍTULOS POR TEMPORADA
+ *
+ * Al final de cada temporada el jugador puede ganar hasta 3 títulos:
+ *   1. Colectivo (con su club): la jerarquía del club (1 = mejor)
+ *      define la probabilidad y qué trofeos compite.
+ *   2. Internacional (club o selección): también pondera jerarquía.
+ *   3. Individual (Balón de Oro, Goleador, etc.): depende del
+ *      rendimiento (nota, goles, asistencias) y del prestigio.
+ *
+ * Cada sorteo usa un puntaje "mérito" por título (base por prestigio,
+ * multiplicado por rendimiento y jerarquía) contra un umbral aleatorio:
+ * los mejores clubes y mejores temporadas ganan más seguido y premios
+ * más importantes.
+ */
+
+async function obtenerTituloGanado(idTituloGanado) {
+  if (!Number.isInteger(idTituloGanado) || idTituloGanado <= 0) return null;
+
+  const filas = await query(
+    `SELECT tg.id_titulo_ganado,
+            tg.temporada,
+            CASE
+              WHEN tg.id_titulo IS NOT NULL THEN 'colectivo'
+              WHEN tg.id_titulo_individual IS NOT NULL THEN 'individual'
+              ELSE 'internacional'
+            END AS tipo,
+            COALESCE(tc.nombre, ti.nombre, tint.nombre) AS nombre,
+            COALESCE(tc.puntos_campeon, ti.puntos_campeon, tint.puntos_campeon) AS puntos_campeon,
+            COALESCE(tc.prestigio, ti.prestigio, tint.prestigio) AS prestigio,
+            COALESCE(tc.imagen, ti.imagen, tint.imagen) AS imagen,
+            tc.pais,
+            tint.continente
+       FROM TituloGanado tg
+       LEFT JOIN Titulo tc ON tc.id_titulo = tg.id_titulo
+       LEFT JOIN TituloIndividual ti ON ti.id_titulo_individual = tg.id_titulo_individual
+       LEFT JOIN TituloInternacional tint ON tint.id_titulo_internacional = tg.id_titulo_internacional
+      WHERE tg.id_titulo_ganado = ?`,
+    [idTituloGanado]
+  );
+
+  return filas[0] || null;
+}
+
+/**
+ * Sortea un título: cada candidato tiene un "mérito" y compite contra un
+ * umbral aleatorio. Devuelve el id del título ganado o null si no se gana.
+ * candidatos: [{ id, merito }]
+ */
+function sortearTitulo(candidatos) {
+  if (!candidatos || candidatos.length === 0) return null;
+
+  const totalMerito = candidatos.reduce(
+    (suma, candidato) => suma + candidato.merito,
+    0
+  );
+
+  // Punto de corte: más mérito acumulado = más chances.
+  const umbral = Math.random() * 100;
+  let acumulado = 0;
+
+  for (const candidato of candidatos) {
+    acumulado += (candidato.merito / totalMerito) * 100;
+    if (umbral <= acumulado) {
+      return candidato.id;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Decide los títulos de la temporada y los registra en TituloGanado.
+ * Devuelve [{ tipo, ...titulo }] (vacío si no ganó nada).
+ */
+async function procesarTitulosTemporada({
+  idParticipante,
+  idClub,
+  jerarquiaClub,
+  notaRendimiento,
+  golesNuevos,
+  asistenciasNuevas,
+  partidosJugadosTemporada,
+  temporada
+}) {
+  const titulosGanados = [];
+
+  const registrarTitulo = async (columna, idTitulo, tipo) => {
+    const resultado = await query(
+      `INSERT INTO TituloGanado
+                  (id_participante, ${columna}, temporada)
+               VALUES (?, ?, ?)`,
+      [idParticipante, idTitulo, temporada]
+    );
+
+    const titulo = await obtenerTituloGanado(resultado.insertId);
+    if (titulo) {
+      titulosGanados.push({ tipo, ...titulo });
+    }
+  };
+
+  // ============================================================
+  // 1. TÍTULO COLECTIVO (con el club)
+  // ============================================================
+  // La jerarquía (1 = mejor club, 5 = más chico) define tanto la
+  // probabilidad como la calidad del trofeo que compite.
+  if (idClub) {
+    const jerarquia = Math.min(5, Math.max(1, Number(jerarquiaClub) || 3));
+
+    // Base de probabilidad: jerarquía 1 → casi siempre pelea algo,
+    // jerarquía 5 → rara vez gana y solo trofeos menores.
+    const factorJerarquia = 1.6 - (jerarquia - 1) * 0.25; // 1.60 .. 0.60
+
+    // El rendimiento de la temporada del jugador empuja al equipo.
+    const meritoRendimiento =
+      0.6 + notaRendimiento / 10 + (golesNuevos + asistenciasNuevas * 0.5) /
+        Math.max(1, partidosJugadosTemporada);
+
+    const candidatosColectivos = await query(
+      `SELECT id_titulo, nombre, prestigio
+         FROM Titulo
+        WHERE pais = (SELECT liga FROM Club WHERE id_club = ?)
+           OR pais IS NULL
+        ORDER BY prestigio DESC`,
+      [idClub]
+    );
+
+    // Los clubes grandes compiten por todo; los chicos solo por
+    // trofeos de prestigio bajo (copas nacionales, supercopas).
+    const elegibles = candidatosColectivos.filter(
+      (titulo) => Number(titulo.prestigio) <= 5 - jerarquia + 1
+    );
+
+    const ganadorColectivo = sortearTitulo(
+      elegibles.map((titulo) => ({
+        id: titulo.id_titulo,
+        merito:
+          Number(titulo.prestigio) * meritoRendimiento * factorJerarquia
+      }))
+    );
+
+    if (ganadorColectivo) {
+      await registrarTitulo("id_titulo", ganadorColectivo, "colectivo");
+    }
+  }
+
+  // ============================================================
+  // 2. TÍTULO INTERNACIONAL
+  // ============================================================
+  // Solo clubes con copa_internacional (los más jerárquicos) compiten,
+  // y el prestigio del torneo exige jerarquía alta.
+  if (idClub && jerarquiaClub && Number(jerarquiaClub) <= 3) {
+    const jerarquia = Math.min(5, Math.max(1, Number(jerarquiaClub)));
+
+    const candidatosInternacionales = await query(
+      `SELECT id_titulo_internacional, nombre, prestigio, continente
+         FROM TituloInternacional
+        WHERE prestigio <= ?
+        ORDER BY prestigio DESC`,
+      [7 - jerarquia * 2] // jerarquía 1 → hasta prestigio 5, jerarquía 3 → hasta 1
+    );
+
+    const meritoInternacional =
+      0.5 + notaRendimiento / 12 +
+      (golesNuevos / Math.max(1, partidosJugadosTemporada)) * 2;
+
+    const factorJerarquiaInt = 1.5 - (jerarquia - 1) * 0.35; // 1.50 .. 0.80
+
+    const ganadorInternacional = sortearTitulo(
+      candidatosInternacionales.map((titulo) => ({
+        id: titulo.id_titulo_internacional,
+        merito: Number(titulo.prestigio) * meritoInternacional * factorJerarquiaInt
+      }))
+    );
+
+    if (ganadorInternacional) {
+      await registrarTitulo(
+        "id_titulo_internacional",
+        ganadorInternacional,
+        "internacional"
+      );
+    }
+  }
+
+  // ============================================================
+  // 3. TÍTULO INDIVIDUAL
+  // ============================================================
+  // Depende del rendimiento individual de la temporada, no del club.
+  // Un gol o asistencia por partido es el piso para pelear algo.
+  const golPorPartido = golesNuevos / Math.max(1, partidosJugadosTemporada);
+  const asistenciaPorPartido =
+    asistenciasNuevas / Math.max(1, partidosJugadosTemporada);
+
+  const candidatosIndividuales = await query(
+    `SELECT id_titulo_individual, nombre, prestigio
+       FROM TituloIndividual`
+  );
+
+  const meritoIndividualBase =
+    notaRendimiento / 10 * 2 +
+    golPorPartido * 3 +
+    asistenciaPorPartido * 1.5;
+
+  const ganadorIndividual = sortearTitulo(
+    candidatosIndividuales.map((titulo) => ({
+      id: titulo.id_titulo_individual,
+      merito: Number(titulo.prestigio) * meritoIndividualBase
+    }))
+  );
+
+  if (ganadorIndividual) {
+    await registrarTitulo(
+      "id_titulo_individual",
+      ganadorIndividual,
+      "individual"
+    );
+  }
+
+  return titulosGanados;
 }
 
 /** Sortea un evento usando peso como ponderación relativa entre los elegibles. */
