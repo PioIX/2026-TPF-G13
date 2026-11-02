@@ -1,0 +1,98 @@
+.popup-titulo-contenido {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    text-align: center;
+}
+
+.popup-titulo-intro {
+    margin: 0;
+    color: #c7d3ee;
+    font-size: 0.85rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+}
+
+.popup-titulo-trofeo {
+    margin: 10px 0 4px;
+    width: clamp(90px, 22vw, 150px);
+    height: clamp(90px, 22vw, 150px);
+    display: grid;
+    place-items: center;
+    font-size: clamp(3.2rem, 9vw, 5rem);
+    line-height: 1;
+    border-radius: 50%;
+    background:
+        radial-gradient(circle at 30% 25%, rgba(255, 226, 130, 0.45), transparent 62%),
+        rgba(255, 205, 84, 0.08);
+    border: 1px solid rgba(255, 205, 84, 0.45);
+    box-shadow:
+        0 0 34px rgba(255, 205, 84, 0.3),
+        inset 0 1px rgba(255, 255, 255, 0.14);
+    animation: popup-titulo-brillo 2.4s ease-in-out infinite alternate;
+    overflow: hidden;
+}
+
+.popup-titulo-trofeo img {
+    width: 78%;
+    height: 78%;
+    object-fit: contain;
+}
+
+@keyframes popup-titulo-brillo {
+    from {
+        box-shadow:
+            0 0 22px rgba(255, 205, 84, 0.22),
+            inset 0 1px rgba(255, 255, 255, 0.14);
+    }
+
+    to {
+        box-shadow:
+            0 0 48px rgba(255, 205, 84, 0.44),
+            inset 0 1px rgba(255, 255, 255, 0.2);
+    }
+}
+
+.popup-titulo-nombre {
+    margin: 4px 0 0;
+    color: #ffe2a0;
+    font-size: clamp(1.35rem, 5vw, 1.85rem);
+    text-shadow: 0 0 24px rgba(255, 205, 84, 0.42);
+}
+
+.popup-titulo-detalle {
+    margin: 0;
+    color: #b9c8ff;
+    font-size: 0.82rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.popup-titulo-prestigio {
+    margin: 6px 0 0;
+    color: #ffd66e;
+    font-weight: 700;
+    font-size: 0.8rem;
+    letter-spacing: 0.12em;
+}
+
+.popup-titulo-puntos {
+    margin: 0;
+    color: #f3f7ff;
+    font-size: 0.95rem;
+}
+
+.popup-titulo-seccion {
+    margin: 14px 0 0;
+    color: #f3f7ff;
+    font-size: 1.1rem;
+}
+
+.popup-titulo-vacio {
+    margin: 10px 0 0;
+    color: #8b9bc4;
+    font-style: italic;
+    text-align: center;
+    line-height: 1.6;
+}
