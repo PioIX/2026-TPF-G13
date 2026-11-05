@@ -42,6 +42,7 @@ const mysql = require("./modulos/mysql");
 // probabilidades de los eventos se resuelven en modulos/eventos.js.
 // ============================================================================
 const eventosModulo = require("./modulos/eventos");
+const titulosModulo = require("./modulos/titulos");
 const {
 normalizarTexto,
 CODIGOS_LESION_NUEVA,
@@ -2363,6 +2364,14 @@ async function procesarTitulosTemporada({
   }
 
   const registrarTitulo = async (columna, idTitulo, tipo) => {
+    // Un mismo título no se gana dos veces en la misma temporada/edición.
+    const [existentes] = await query(
+      `SELECT COUNT(*) AS n FROM TituloGanado
+        WHERE id_participante = ? AND temporada = ? AND ${columna} = ?`,
+      [idParticipante, temporada, idTitulo]
+    );
+    if (Number(existentes?.n) > 0) return null;
+
     const resultado = await query(
       `INSERT INTO TituloGanado
                   (id_participante, ${columna}, temporada)
@@ -2390,7 +2399,29 @@ async function procesarTitulosTemporada({
         [Number(titulo.puntos_campeon) || 0, resultado.insertId]
       );
     }
+    return titulo;
   };
+
+  // Historial del jugador para las dependencias (Supercopa, Mundial de
+  // Clubes, Finalissima). Una sola consulta, filtrada en memoria.
+  const titulosPrevios = await query(
+    `SELECT tg.temporada,
+            t.id_titulo, t.nombre AS nombre_titulo, t.pais,
+            tint.id_titulo_internacional
+       FROM TituloGanado tg
+       LEFT JOIN Titulo t ON t.id_titulo = tg.id_titulo
+       LEFT JOIN TituloInternacional tint
+              ON tint.id_titulo_internacional = tg.id_titulo_internacional
+      WHERE tg.id_participante = ?`,
+    [idParticipante]
+  );
+  const listaPrevios = (titulosPrevios || []).filter(Boolean);
+  const previosInternacionales = listaPrevios
+    .filter((p) => p.id_titulo_internacional != null)
+    .map((p) => ({
+      id_titulo_internacional: p.id_titulo_internacional,
+      temporada: p.temporada
+    }));
 
   // ============================================================
   // 1. TÍTULO COLECTIVO (con el club)
@@ -2413,18 +2444,30 @@ async function procesarTitulosTemporada({
       0.6 + notaRendimiento / 10 + (golesNuevos + asistenciasNuevas * 0.5) /
         Math.max(1, partidosJugadosTemporada);
 
-    const candidatosColectivos = await query(
-      `SELECT id_titulo, nombre, prestigio
-         FROM Titulo
-        WHERE pais = (SELECT liga FROM Club WHERE id_club = ?)
-        ORDER BY prestigio DESC`,
+    // AUDITORÍA: Club.liga guarda la LIGA ("Brasileirão", "MLS"), no el
+    // país. Comparar Titulo.pais = Club.liga dejaba la mayoría de las
+    // ligas inganables. Se traduce la liga a país con el mapa del módulo
+    // de títulos y se filtra con las reglas de elegibilidad.
+    const [clubActual] = await query(
+      `SELECT liga FROM Club WHERE id_club = ?`,
       [idClub]
     );
+    const ligaClub = clubActual?.liga || null;
 
-    // Los clubes grandes compiten por todo; los chicos solo por
-    // trofeos de prestigio bajo (copas nacionales, supercopas).
-    const elegibles = candidatosColectivos.filter(
-      (titulo) => Number(titulo.prestigio) <= jerarquia
+    const candidatosColectivos = await query(
+      `SELECT id_titulo, nombre, pais, prestigio
+         FROM Titulo`,
+      []
+    );
+
+    const elegibles = candidatosColectivos.filter((titulo) =>
+      titulosModulo.elegibleTituloColectivo({
+        titulo,
+        ligaClub,
+        jerarquia,
+        titulosPrevios: listaPrevios,
+        temporada
+      })
     );
 
     const ganadorColectivo = sortearTitulo(
@@ -2462,33 +2505,23 @@ async function procesarTitulosTemporada({
     // Filtro duro de validaciones (auditoría - competencias internacionales):
     // - De CLUBES: la confederación del CLUB decide la elegibilidad, no el
     //   país del jugador. Un club sudamericano compite por Libertadores /
-    //   Sudamericana; un club europeo por Champions / Europa League. La
-    //   Mundial de Clubes la disputa cualquier club con jerarquía mínima.
+    //   Sudamericana; un club europeo por Champions / Europa League.
+    // - Mundial de Clubes (anual) e Intercontinental: solo campeones
+    //   continentales (dependencia por historial).
     // - De SELECCIONES: hay que haber sido realmente CONVOCADO y JUGADO
-    //   (desde el caller llega idSeleccion = null si no participó).
+    //   (desde el caller llega idSeleccion = null si no participó);
+    //   continental: la selección debe ser de esa confederación;
+    //   Olímpico: sub-23; Finalissima: campeón continental vigente.
     const elegiblesInternacionales = candidatosInternacionales.filter(
-      (titulo) => {
-        if (Number(titulo.tipo_seleccion) === 0) {
-          // Torneo de clubes: exige que el club pertenezca a la
-          // confederación del torneo (continente_club).
-          const continenteTorneo = normalizarTexto(titulo.continente_club);
-          if (!continenteTorneo) return true; // Mundial de clubes: cualquiera
-          if (!continenteClub) return false;
-          return normalizarTexto(continenteClub) === continenteTorneo;
-        }
-
-        const convocado =
-          idSeleccion !== null && idSeleccion !== undefined && Number(idSeleccion) > 0;
-        if (!convocado) return false;
-
-        // Mundial / Finalissima / Copa Árabe / Olímpico: cualquier selección.
-        const continente = normalizarTexto(titulo.continente);
-        if (continente === "mundial") return true;
-
-        // Torneo continental: el país del jugador tiene que ser de ese
-        // continente (Copa América -> Sudamérica, Eurocopa -> Europa, etc.).
-        return normalizarTexto(continenteSeleccion) === continente;
-      }
+      (titulo) =>
+        titulosModulo.elegibleTituloInternacional({
+          titulo,
+          continenteClub,
+          idSeleccion,
+          continenteSeleccion,
+          titulosInternacionalesPrevios: previosInternacionales,
+          edad
+        })
     );
 
     if (elegiblesInternacionales.length > 0) {
@@ -2523,12 +2556,18 @@ async function procesarTitulosTemporada({
   // ============================================================
   // 3. TÍTULO INDIVIDUAL
   // ============================================================
-  // Depende del rendimiento individual de la temporada, no del club.
-  // La EDAD controla cada premio:
-  //   - Golden Boy (Mejor Jugador Joven): solo hasta los 22.
-  //   - Balón de Oro y Bota de Oro: después de los 30 la probabilidad
-  //     cae fuerte (puede pasar, pero es raro).
-  //   - Goleador de la Liga: premio por liga LOCAL (pais del club).
+  // Depende del rendimiento individual real de la temporada, no del club.
+  // AUDITORÍA: antes se sorteaba entre TODOS los premios sin condiciones:
+  // un delantero podía ganar el Guante de Oro sin ser arquero, un jugador
+  // sin convocatoria podía ganar premios "de la Copa Mundial" y un jugador
+  // sin goles podía ganar premios de goleador. Ahora cada premio exige sus
+  // condiciones (ver modulos/titulos.js):
+  //   - Goleadores: mínimo de goles en la temporada + competición correcta.
+  //   - Mundial: exige convocatoria en la temporada.
+  //   - Arqueros: excluidos (el juego no registra la posición).
+  //   - Juveniles: Golden Boy/Kopa sub-21.
+  //   - UEFA: club europeo.
+  //   - Duplicados históricos (1, 3): congelados, conservan historial.
   const edadJugador = Math.max(18, Number(edad) || 18);
   const golPorPartido = golesNuevos / Math.max(1, partidosJugadosTemporada);
   const asistenciaPorPartido =
@@ -2554,35 +2593,24 @@ async function procesarTitulosTemporada({
     golPorPartido * 3 +
     asistenciaPorPartido * 1.5;
 
-  const nombreNormalizado = (t) => normalizarTexto(t.nombre);
-
-  // Filtro + mérito con edad:
-  // - "Mejor Jugador Joven" (Golden Boy): exclusivo hasta 22 años.
-  // - Balón de Oro / Bota de Oro: penalización fuerte con la edad
-  //   (un 35 años puede ganar, pero necesita una temporada brutal).
   const elegiblesIndividuales = candidatosIndividuales
-    .filter((titulo) => {
-      // Premio por liga/pais: solo si coincide con el pais del club.
-      if (titulo.pais != null && normalizarTexto(titulo.pais) !== normalizarTexto(paisClub)) {
-        return false;
-      }
-
-      const nombre = nombreNormalizado(titulo);
-
-      if (/joven/.test(nombre) && edadJugador > 22) return false;
-
-      if (/bal.?n de oro|bota de oro/.test(nombre) && edadJugador > 30) {
-        // Cada año sobre 30 reduce las chances: es posible pero raro.
-        return Math.random() < Math.max(0.15, 0.6 - (edadJugador - 30) * 0.12);
-      }
-
-      return true;
-    })
+    .filter((titulo) =>
+      titulosModulo.elegibleTituloIndividual({
+        titulo,
+        edad: edadJugador,
+        ligaClub: paisClub,
+        continenteClub,
+        golesNuevos,
+        convocadoConSeleccion: idSeleccion != null && Number(idSeleccion) > 0
+      })
+    )
     .map((titulo) => {
-      const nombre = nombreNormalizado(titulo);
       let merito = Number(titulo.prestigio) * meritoIndividualBase;
 
-      if (/bal.?n de oro|bota de oro/.test(nombre) && edadJugador > 28) {
+      // Balón de Oro / Bota de Oro: penalización con la edad
+      // (un 35 años puede ganar, pero necesita una temporada brutal).
+      const nombreNormalizado = titulosModulo.normalizarTexto(titulo.nombre);
+      if (/bal.?n de oro|bota de oro/.test(nombreNormalizado) && edadJugador > 28) {
         merito *= Math.max(0.2, 1 - (edadJugador - 28) * 0.08);
       }
 
