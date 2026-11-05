@@ -19,10 +19,23 @@ SET SQL_SAFE_UPDATES = 0;
 --    Los filtros contextuales del backend y las dependencias históricas
 --    necesitan reconocer cada evento sin depender de cadenas de texto frágiles
 --    (acentos, mayúsculas). codigo_evento es la clave estable del evento.
+--    (Idempotente: si la columna/índice ya existen, no falla el script.)
 -- ----------------------------------------------------------------------------
-ALTER TABLE Evento
-    ADD COLUMN codigo_evento VARCHAR(50) NULL,
-    ADD UNIQUE KEY uq_evento_codigo (codigo_evento);
+SET @existe_col = (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'Evento'
+      AND COLUMN_NAME = 'codigo_evento');
+SET @ddl = IF(@existe_col = 0,
+    'ALTER TABLE Evento ADD COLUMN codigo_evento VARCHAR(50) NULL',
+    'SELECT "codigo_evento ya existe, se omite" AS aviso');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @existe_idx = (SELECT COUNT(*) FROM INFORMATION_SCHEMA.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'Evento'
+      AND INDEX_NAME = 'uq_evento_codigo');
+SET @ddl = IF(@existe_idx = 0,
+    'ALTER TABLE Evento ADD UNIQUE KEY uq_evento_codigo (codigo_evento)',
+    'SELECT "uq_evento_codigo ya existe, se omite" AS aviso');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 UPDATE Evento SET codigo_evento = 'lesion_desgarro'       WHERE nombre = 'Desgarro muscular';
 UPDATE Evento SET codigo_evento = 'lesion_esguince'       WHERE nombre = 'Esguince de tobillo';

@@ -39,19 +39,28 @@ CREATE TABLE IF NOT EXISTS ClubesHistorico (
 --    id_seleccion ya era la "convocatoria"; ahora guarda la NACIONALIDAD
 --    elegida al crear el jugador (se mantiene por compatibilidad: la
 --    nacionalidad y la primera convocatoria suelen coincidir).
+--    (Idempotente: cada columna/constraint se agrega solo si no existe.)
 -- ----------------------------------------------------------------------------
-ALTER TABLE ParticipantePartida
-    ADD COLUMN id_nacionalidad INT NULL,
-    ADD CONSTRAINT fk_participante_nacionalidad
-        FOREIGN KEY (id_nacionalidad) REFERENCES Seleccion(id_seleccion);
+SET @ddl = IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'ParticipantePartida'
+      AND COLUMN_NAME = 'id_nacionalidad') = 0,
+    'ALTER TABLE ParticipantePartida ADD COLUMN id_nacionalidad INT NULL',
+    'SELECT "id_nacionalidad ya existe, se omite" AS aviso');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
--- Estados de Selección (nada de esto cambia el esquema del juego):
---   convocatorias: 0 = nunca convocado.
---   estado_seleccion: 'nunca' | 'convocado' | 'suplente' | 'titular' | 'fuera'
-ALTER TABLE ParticipantePartida
-    ADD COLUMN convocatorias INT NOT NULL DEFAULT 0,
-    ADD COLUMN estado_seleccion VARCHAR(20) NOT NULL DEFAULT 'nunca',
-    ADD COLUMN temporadas_fuera_seleccion INT NOT NULL DEFAULT 0;
+SET @ddl = IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS
+    WHERE CONSTRAINT_SCHEMA = DATABASE() AND TABLE_NAME = 'ParticipantePartida'
+      AND CONSTRAINT_NAME = 'fk_participante_nacionalidad') = 0,
+    'ALTER TABLE ParticipantePartida ADD CONSTRAINT fk_participante_nacionalidad FOREIGN KEY (id_nacionalidad) REFERENCES Seleccion(id_seleccion)',
+    'SELECT "fk_participante_nacionalidad ya existe, se omite" AS aviso');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @ddl = IF((SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'ParticipantePartida'
+      AND COLUMN_NAME = 'convocatorias') = 0,
+    'ALTER TABLE ParticipantePartida ADD COLUMN convocatorias INT NOT NULL DEFAULT 0, ADD COLUMN estado_seleccion VARCHAR(20) NOT NULL DEFAULT ''nunca'', ADD COLUMN temporadas_fuera_seleccion INT NOT NULL DEFAULT 0',
+    'SELECT "columnas de selección ya existen, se omiten" AS aviso');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 -- ----------------------------------------------------------------------------
 -- 3. Rellenar continente de Club para las ligas cargadas.
