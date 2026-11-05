@@ -1457,11 +1457,17 @@ io.on("connection", (socket) => {
           // alto nivel (jerarquía >= 4): es la señal disponible de que hay
           // un rival de fútbol grande en la misma liga.
           let ligaConClasico = false;
+          // Jerarquía del club del jugador: la necesitan los títulos de
+          // temporada y los eventos de cambio de club. Es nula sin contrato.
+          let jerarquiaClub = null;
           if (jugador.id_club) {
             const ligaActual = await query(
-              `SELECT liga FROM Club WHERE id_club = ?`,
+              `SELECT liga, jerarquia FROM Club WHERE id_club = ?`,
               [jugador.id_club]
             );
+            jerarquiaClub = ligaActual[0]?.jerarquia != null
+              ? Number(ligaActual[0].jerarquia)
+              : null;
             if (ligaActual[0]?.liga) {
               const rivales = await query(
                 `SELECT COUNT(*) AS n FROM Club
@@ -1941,22 +1947,34 @@ io.on("connection", (socket) => {
           } catch (error) {
             // Si la tabla no tiene la fila del casillero correspondiente,
             // no interrumpimos el turno por el registro histórico.
-            if (!/fk_eventopartida_casillero|foreign key/i.test(error.message)) {
+            const esErrorCasilleroInexistente =
+              /fk_eventopartida_casillero|foreign key/i.test(error.message);
+            if (!esErrorCasilleroInexistente) {
               throw error;
             }
-            try {
-              await query(
-                `INSERT INTO EventoPartida
-                            (id_partida, id_usuario, id_evento, id_casillero,
-                             semilla, fecha)
-                         VALUES (?, ?, ?,
-                                 (SELECT MIN(id_casillero) FROM Casillero), ?, NOW())`,
-                [idPartida, idUsuario, eventoElegido.id_evento,
-                 Math.floor(Math.random() * 2147483647)]
-              );
-            } catch (errorInterno) {
-              if (!/EventoPartida|doesn't exist|does not exist/i.test(errorInterno.message)) {
-                throw errorInterno;
+            // Fallback: usamos cualquier casillero existente. Si la tabla
+            // Casillero está vacía (MIN devuelve NULL y el INSERT fallaría
+            // con "id_casillero cannot be null"), simplemente se omite el
+            // registro: la partida sigue igual.
+            const casilleros = await query(
+              `SELECT MIN(id_casillero) AS id_casillero FROM Casillero`
+            );
+            const idCasilleroRespaldo = casilleros[0]?.id_casillero;
+            if (idCasilleroRespaldo != null) {
+              try {
+                await query(
+                  `INSERT INTO EventoPartida
+                              (id_partida, id_usuario, id_evento, id_casillero,
+                               semilla, fecha)
+                           VALUES (?, ?, ?, ?, ?, NOW())`,
+                  [idPartida, idUsuario, eventoElegido.id_evento,
+                   idCasilleroRespaldo,
+                   Math.floor(Math.random() * 2147483647)]
+                );
+              } catch (errorInterno) {
+                if (!/EventoPartida|doesn't exist|does not exist/i.test(errorInterno.message)) {
+                  throw errorInterno;
+                }
               }
             }
           }
