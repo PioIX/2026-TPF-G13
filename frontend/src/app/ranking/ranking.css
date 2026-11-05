@@ -1,0 +1,326 @@
+/* Ranking histórico: misma superficie de panel que el resto del juego. */
+.ranking-page {
+    position: relative;
+    isolation: isolate;
+    min-height: 100vh;
+    min-height: 100svh;
+    padding: clamp(28px, 6vh, 64px) clamp(16px, 4vw, 48px);
+    color: var(--color-text);
+    background-color: var(--color-night);
+    background-image:
+        linear-gradient(135deg, rgba(5, 7, 24, 0.94) 0%, rgba(5, 7, 24, 0.78) 60%, rgba(5, 7, 24, 0.5) 100%),
+        radial-gradient(ellipse at 78% 18%, rgba(128, 80, 255, 0.22), transparent 42%),
+        radial-gradient(ellipse at 12% 82%, rgba(23, 105, 255, 0.18), transparent 45%),
+        url("/images/estadio.png");
+    background-position: center;
+    background-repeat: no-repeat;
+    background-size: cover;
+    background-attachment: fixed;
+}
+
+.ranking-panel {
+    position: relative;
+    width: min(1200px, 100%);
+    margin: 0 auto;
+    padding: clamp(28px, 5vw, 52px);
+    overflow: hidden;
+    border: 1px solid var(--color-line);
+    border-radius: 14px;
+    background: var(--color-surface);
+    box-shadow: 0 32px 90px rgba(0, 0, 0, 0.48);
+    backdrop-filter: blur(18px);
+    animation: ranking-aparecer 450ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.ranking-panel::before {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 3px;
+    background: linear-gradient(90deg, transparent, var(--color-accent), var(--color-rose), transparent);
+    content: "";
+}
+
+.ranking-panel--solo {
+    max-width: 520px;
+    text-align: center;
+}
+
+.ranking-encabezado {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 18px;
+    align-items: flex-end;
+    justify-content: space-between;
+    margin-bottom: 26px;
+    padding-bottom: 22px;
+    border-bottom: 1px solid var(--color-line);
+}
+
+.ranking-encabezado>div {
+    flex: 1 1 280px;
+    min-width: 0;
+}
+
+.ranking-etiqueta {
+    display: inline-block;
+    margin: 0 0 8px;
+    padding: 5px 10px;
+    border: 1px solid rgba(244, 84, 163, 0.32);
+    border-radius: 4px;
+    background: rgba(244, 84, 163, 0.1);
+    color: var(--color-rose-bright);
+    font-size: 0.65rem;
+    font-weight: 800;
+    letter-spacing: 0.2em;
+}
+
+.ranking-titulo {
+    margin: 0 0 8px;
+    color: #fff;
+    font-family: var(--font-display), Impact, sans-serif;
+    font-size: clamp(2.4rem, 6vw, 3.6rem);
+    font-weight: 400;
+    letter-spacing: 0.01em;
+    line-height: 0.9;
+    text-transform: uppercase;
+}
+
+.ranking-subtitulo {
+    margin: 0;
+    color: var(--color-muted);
+    font-size: 0.95rem;
+}
+
+.ranking-acciones-encabezado {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.ranking-acciones-encabezado button {
+    min-height: 44px;
+    padding: 10px 18px;
+    border: 1px solid var(--color-line);
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.04);
+    color: var(--color-text);
+    font-size: 0.78rem;
+    font-weight: 800;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: transform 180ms ease, border-color 180ms ease, background 180ms ease;
+}
+
+.ranking-acciones-encabezado button:hover {
+    transform: translateY(-2px);
+    border-color: rgba(23, 105, 255, 0.55);
+    background: linear-gradient(110deg, rgba(23, 105, 255, 0.18), rgba(244, 84, 163, 0.1));
+}
+
+.ranking-acciones-encabezado button:focus-visible {
+    outline: 2px solid #fff;
+    outline-offset: 3px;
+}
+
+/* Resumen del jugador logueado. */
+.ranking-resumen {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 12px;
+    margin-bottom: 24px;
+}
+
+.ranking-resumen-dato {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 14px 16px;
+    border: 1px solid var(--color-line);
+    border-radius: 8px;
+    background: linear-gradient(145deg, rgba(23, 105, 255, 0.1), rgba(9, 12, 31, 0.6));
+}
+
+.ranking-resumen-dato span {
+    color: var(--color-muted);
+    font-size: 0.68rem;
+    font-weight: 800;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+}
+
+.ranking-resumen-dato strong {
+    color: #fff;
+    font-family: var(--font-display), Impact, sans-serif;
+    font-size: 1.7rem;
+    font-weight: 400;
+    line-height: 1;
+}
+
+/* Tabla. */
+.ranking-tabla-contenedor {
+    overflow-x: auto;
+    border: 1px solid var(--color-line);
+    border-radius: 8px;
+    background: rgba(5, 9, 24, 0.6);
+}
+
+.ranking-tabla {
+    width: 100%;
+    min-width: 900px;
+    border-collapse: collapse;
+    color: var(--color-text);
+    font-size: 0.88rem;
+}
+
+.ranking-tabla th,
+.ranking-tabla td {
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--color-line);
+    text-align: left;
+    vertical-align: middle;
+}
+
+.ranking-tabla th {
+    background: rgba(23, 105, 255, 0.08);
+    color: var(--color-accent-bright);
+    font-size: 0.7rem;
+    font-weight: 800;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+}
+
+.ranking-tabla tbody tr {
+    transition: background 320ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.ranking-tabla tbody tr:hover {
+    background: rgba(255, 255, 255, 0.025);
+}
+
+.ranking-tabla tbody tr:last-child td {
+    border-bottom: none;
+}
+
+.ranking-fila--mia {
+    background: linear-gradient(90deg, rgba(23, 105, 255, 0.16), rgba(244, 84, 163, 0.08));
+}
+
+.ranking-puesto {
+    color: #fff;
+    font-weight: 800;
+    white-space: nowrap;
+}
+
+.ranking-copa {
+    margin-left: 6px;
+    font-size: 0.95rem;
+}
+
+.ranking-puntaje {
+    color: #ffe2a0;
+    font-weight: 800;
+}
+
+.ranking-chip {
+    display: inline-flex;
+    margin-left: 8px;
+    padding: 2px 8px;
+    border: 1px solid rgba(23, 105, 255, 0.5);
+    border-radius: 999px;
+    background: rgba(23, 105, 255, 0.14);
+    color: var(--color-accent-bright);
+    font-size: 0.62rem;
+    font-weight: 800;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+}
+
+.ranking-fecha {
+    display: block;
+    margin-top: 2px;
+    color: var(--color-muted);
+    font-size: 0.72rem;
+}
+
+.ranking-tabla-vacia {
+    padding: 26px 14px;
+    color: var(--color-muted);
+    font-style: italic;
+    text-align: center;
+}
+
+.ranking-error {
+    margin: 0 0 20px;
+    padding: 13px 15px;
+    border: 1px solid rgba(255, 110, 145, 0.4);
+    border-radius: 4px;
+    background: rgba(160, 32, 70, 0.2);
+    color: #ffb5d1;
+    font-size: 0.9rem;
+    line-height: 1.5;
+}
+
+.ranking-panel--solo button {
+    min-height: 44px;
+    padding: 10px 18px;
+    border: 1px solid var(--color-accent);
+    border-radius: 4px;
+    background: linear-gradient(110deg, var(--color-accent), var(--color-violet) 62%, #b745d7);
+    color: #fff;
+    font-size: 0.78rem;
+    font-weight: 800;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    cursor: pointer;
+}
+
+@keyframes ranking-aparecer {
+    from {
+        opacity: 0;
+        transform: translateY(12px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@media (max-width: 760px) {
+    .ranking-encabezado {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .ranking-acciones-encabezado {
+        width: 100%;
+    }
+
+    .ranking-acciones-encabezado button {
+        flex: 1;
+    }
+}
+
+@media (max-width: 480px) {
+    .ranking-panel {
+        padding: 26px 18px;
+    }
+
+    .ranking-tabla {
+        min-width: 760px;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .ranking-panel {
+        animation: none;
+    }
+
+    .ranking-acciones-encabezado button,
+    .ranking-tabla tbody tr {
+        transition: none;
+    }
+}
