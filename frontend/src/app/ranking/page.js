@@ -30,6 +30,8 @@ export default function RankingPage() {
     const router = useRouter();
 
     const [ranking, setRanking] = useState([]);
+    const [historico, setHistorico] = useState([]);
+    const [pestana, setPestana] = useState("carreras");
     const [resumen, setResumen] = useState(null);
     const [idUsuario, setIdUsuario] = useState(null);
     const [cargando, setCargando] = useState(true);
@@ -51,14 +53,21 @@ export default function RankingPage() {
             ),
             fetch(`${API_BASE}/ranking/mi-resumen`, {
                 credentials: "include"
-            }).then((respuesta) => (respuesta.ok ? respuesta.json() : {}))
+            }).then((respuesta) => (respuesta.ok ? respuesta.json() : {})),
+            fetch(`${API_BASE}/ranking/historico`, {
+                credentials: "include"
+            })
+                .then((respuesta) =>
+                    respuesta.ok ? respuesta.json() : { historico: [] }
+                )
         ])
-            .then(([datosRanking, datosResumen]) => {
+            .then(([datosRanking, datosResumen, datosHistorico]) => {
                 if (cancelado) return;
 
                 setRanking(datosRanking.ranking ?? []);
                 setIdUsuario(Number(datosRanking.idUsuario));
                 setResumen(datosResumen);
+                setHistorico(datosHistorico.historico ?? []);
             })
             .catch((error) => {
                 if (cancelado) return;
@@ -133,6 +142,24 @@ export default function RankingPage() {
                     </div>
                 )}
 
+                <div className="ranking-pestanas">
+                    <button
+                        type="button"
+                        className={`ranking-pestana ${pestana === "carreras" ? "ranking-pestana--activa" : ""}`}
+                        onClick={() => setPestana("carreras")}
+                    >
+                        Mejores carreras
+                    </button>
+                    <button
+                        type="button"
+                        className={`ranking-pestana ${pestana === "historico" ? "ranking-pestana--activa" : ""}`}
+                        onClick={() => setPestana("historico")}
+                    >
+                        Histórico de jugadores
+                    </button>
+                </div>
+
+                {pestana === "carreras" && (
                 <div className="ranking-tabla-contenedor">
                     <table className="ranking-tabla">
                         <thead>
@@ -209,6 +236,71 @@ export default function RankingPage() {
                         </tbody>
                     </table>
                 </div>
+                )}
+
+                {pestana === "historico" && (
+                <div className="ranking-tabla-contenedor">
+                    <table className="ranking-tabla">
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>Jugador</th>
+                                <th>Carreras</th>
+                                <th>Victorias</th>
+                                <th>Goles</th>
+                                <th>Asist.</th>
+                                <th>Mejor GRL</th>
+                                <th>Mejor puntaje</th>
+                                <th>Títulos</th>
+                                <th>Títulos club</th>
+                                <th>Internac.</th>
+                                <th>Individuales</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {historico.length === 0 && (
+                                <tr>
+                                    <td colSpan={12} className="ranking-tabla-vacia">
+                                        Todavía no hay jugadores con carreras terminadas.
+                                    </td>
+                                </tr>
+                            )}
+
+                            {historico.map((fila) => {
+                                const esMio = Number(fila.id_usuario) === idUsuario;
+
+                                return (
+                                    <tr
+                                        key={fila.id_usuario}
+                                        className={esMio ? "ranking-fila--mia" : ""}
+                                    >
+                                        <td className="ranking-puesto">{fila.puesto}</td>
+                                        <td>
+                                            {fila.nombre_usuario}
+                                            {esMio && (
+                                                <span className="ranking-chip">Vos</span>
+                                            )}
+                                        </td>
+                                        <td>{formatearNumero(fila.carreras)}</td>
+                                        <td>{formatearNumero(fila.victorias)}</td>
+                                        <td>{formatearNumero(fila.goles)}</td>
+                                        <td>{formatearNumero(fila.asistencias)}</td>
+                                        <td>{formatearNumero(fila.mejor_grl)}</td>
+                                        <td>{formatearNumero(fila.mejor_puntaje)}</td>
+                                        <td className="ranking-puntaje">
+                                            🏆 {formatearNumero(fila.titulos_totales)}
+                                        </td>
+                                        <td>{formatearNumero(fila.titulos_colectivos)}</td>
+                                        <td>{formatearNumero(fila.titulos_internacionales)}</td>
+                                        <td>{formatearNumero(fila.titulos_individuales)}</td>
+                                    </tr>
+                                );
+                            })}
+                        </tbody>
+                    </table>
+                </div>
+                )}
+
             </section>
         </main>
     );

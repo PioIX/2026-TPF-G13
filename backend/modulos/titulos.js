@@ -229,6 +229,28 @@ function elegibleTituloIndividual({
     return false;
   }
 
+  // MVPs de liga específica ("Mejor Jugador de la Bundesliga", "... de la
+  // Premier League", "... de LaLiga", "... de la Serie A", "... de la Ligue 1"):
+  // solo puede ganarlo un jugador de ESA liga. Sin esta regla el premio
+  // no tenía país y salía para cualquier club del mundo.
+  if (/mejor jugador de la/.test(nombre)) {
+    if (/bundesliga/.test(nombre)) {
+      return normalizarTexto(ligaClub) === "bundesliga";
+    }
+    if (/premier league/.test(nombre)) {
+      return normalizarTexto(ligaClub) === "premier league";
+    }
+    if (/laliga|la liga/.test(nombre)) {
+      return normalizarTexto(ligaClub) === "la liga";
+    }
+    if (/serie a/.test(nombre)) {
+      return normalizarTexto(ligaClub) === "serie a";
+    }
+    if (/ligue 1/.test(nombre)) {
+      return normalizarTexto(ligaClub) === "ligue 1";
+    }
+  }
+
   // Goleadores: necesitan goles de verdad, en la competición correcta.
   if (/goleador|bota de oro/.test(nombre)) {
     if (Number(golesNuevos) < GOLES_MINIMOS_GOLEADOR) return false;

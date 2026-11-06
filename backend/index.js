@@ -2221,6 +2221,9 @@ io.on("connection", (socket) => {
         io.to(`partida_${idPartida}`).emit("partidaFinalizada", {
           idPartida,
           ganador: resultadoTurno.ganador
+        });
+      }
+
       // "Muerta" (fin de carrera): la partida terminó para ambos. Se avisa
       // a TODA la sala con el evento visible (incluido el rival).
       if (evento?.fin_partida) {
@@ -2661,10 +2664,12 @@ async function procesarTitulosTemporada({
   if (idClub) {
     const jerarquia = Math.min(5, Math.max(1, Number(jerarquiaClub) || 3));
 
-    // Probabilidad base de campeonar según jerarquía: los gigantes
-    // pelean casi siempre, los chicos rara vez. Un solo tiro, no uno
-    // por trofeo: si falla, la temporada queda sin título colectivo.
-    const probabilidadCampeon = 0.07 + (jerarquia - 1) * 0.12; // 7% .. 55%
+    // Probabilidad base de campeonar según jerarquía: los gigantes pelean
+    // seguido, los chicos casi nunca. Un solo tiro, no uno por trofeo: si
+    // falla, la temporada queda sin título colectivo. Con el ajuste, un
+    // gigante campeonaa ~35% por temporada (un título cada ~3 temporadas)
+    // y un club chico ~4%.
+    const probabilidadCampeon = 0.04 + (jerarquia - 1) * 0.078; // 4% .. 35%
 
     if (Math.random() >= probabilidadCampeon) {
       // No salió campeón esta temporada.
@@ -2756,7 +2761,7 @@ async function procesarTitulosTemporada({
 
     if (elegiblesInternacionales.length > 0) {
       // Igual que en los colectivos: un solo tiro por temporada.
-      const probabilidadInternacional = 0.04 + (jerarquia - 1) * 0.07; // 4% .. 32%
+      const probabilidadInternacional = 0.02 + (jerarquia - 1) * 0.045; // 2% .. 20%
 
       if (Math.random() < probabilidadInternacional) {
     const meritoInternacional =
@@ -2803,12 +2808,14 @@ async function procesarTitulosTemporada({
   const asistenciaPorPartido =
     asistenciasNuevas / Math.max(1, partidosJugadosTemporada);
 
-  // Un solo tiro: la mayoría de las temporadas no ganás nada.
+  // Un solo tiro: la mayoría de las temporadas no ganás nada. Además
+  // del tiro, premios TOP (Balón de Oro, The Best, Bota de Oro) exigen
+  // una temporada realmente destacada vía su mérito (ver abajo).
   const probabilidadIndividual = Math.min(
-    0.30,
+    0.18,
     Math.max(
-      0.02,
-      (notaRendimiento - 5.5) / 15 + (golPorPartido + asistenciaPorPartido) * 0.25
+      0.01,
+      ((notaRendimiento - 6.0) / 22) + (golPorPartido + asistenciaPorPartido) * 0.15
     )
   );
 
@@ -3099,6 +3106,71 @@ app.get("/ranking", async (req, res) => {
     console.error("Error al obtener el ranking:", error);
 
     return res.status(500).json({ error: "No se pudo obtener el ranking" });
+  }
+});
+
+// Estadísticas HISTÓRICAS de TODOS los jugadores del juego: agrega
+// TODAS las carreras (finalizadas) de cada usuario y cuenta los títulos
+// ganados (colectivos, internacionales e individuales). Es la vista
+// "libro de oro" del juego, independiente de una carrera puntual.
+app.get("/ranking/historico", async (req, res) => {
+  try {
+    if (!req.session.usuario) {
+      return res.status(401).json({ error: "Tenés que iniciar sesión" });
+    }
+
+    const filas = await mysql.realizarQuery(
+      `SELECT
+          u.id_usuario,
+          u.nombre_usuario,
+          COUNT(DISTINCT pp.id_partida) AS carreras,
+          COALESCE(SUM(CASE WHEN p.id_ganador = pp.id_usuario THEN 1 ELSE 0 END), 0) AS victorias,
+          COALESCE(SUM(pp.goles), 0) AS goles,
+          COALESCE(SUM(pp.asistencias), 0) AS asistencias,
+          COALESCE(SUM(pp.partidos_jugados), 0) AS partidos_jugados,
+          COALESCE(MAX(pp.grl_maxima), 0) AS mejor_grl,
+          COALESCE(MAX(pp.puntaje_final), 0) AS mejor_puntaje,
+          COALESCE(SUM(pp.puntos_campeon), 0) AS puntos_titulos,
+          (SELECT COUNT(*) FROM TituloGanado tg
+            INNER JOIN ParticipantePartida pp2 ON pp2.id_participante = tg.id_participante
+            INNER JOIN Partida p2 ON p2.id_partida = pp2.id_partida
+           WHERE pp2.id_usuario = u.id_usuario AND p2.estado = 'finalizada'
+             AND tg.id_titulo IS NOT NULL) AS titulos_colectivos,
+          (SELECT COUNT(*) FROM TituloGanado tg
+            INNER JOIN ParticipantePartida pp2 ON pp2.id_participante = tg.id_participante
+            INNER JOIN Partida p2 ON p2.id_partida = pp2.id_partida
+           WHERE pp2.id_usuario = u.id_usuario AND p2.estado = 'finalizada'
+             AND tg.id_titulo_internacional IS NOT NULL) AS titulos_internacionales,
+          (SELECT COUNT(*) FROM TituloGanado tg
+            INNER JOIN ParticipantePartida pp2 ON pp2.id_participante = tg.id_participante
+            INNER JOIN Partida p2 ON p2.id_partida = pp2.id_partida
+           WHERE pp2.id_usuario = u.id_usuario AND p2.estado = 'finalizada'
+             AND tg.id_titulo_individual IS NOT NULL) AS titulos_individuales
+       FROM Usuario u
+       INNER JOIN ParticipantePartida pp ON pp.id_usuario = u.id_usuario
+       INNER JOIN Partida p ON p.id_partida = pp.id_partida
+       WHERE p.estado = 'finalizada'
+       GROUP BY u.id_usuario, u.nombre_usuario
+       ORDER BY victorias DESC, mejor_puntaje DESC, goles DESC`
+    );
+
+    const historico = filas.map((fila, indice) => ({
+      ...fila,
+      puesto: indice + 1,
+      titulos_totales:
+        Number(fila.titulos_colectivos) +
+        Number(fila.titulos_internacionales) +
+        Number(fila.titulos_individuales)
+    }));
+
+    return res.status(200).json({
+      idUsuario: Number(req.session.usuario.id_usuario),
+      historico
+    });
+  } catch (error) {
+    console.error("Error al obtener el histórico:", error);
+
+    return res.status(500).json({ error: "No se pudo obtener el histórico" });
   }
 });
 
