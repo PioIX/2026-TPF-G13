@@ -1,6 +1,7 @@
 
 "use client";
 
+import { useState } from "react";
 import Image from "next/image";
 import Button from "@/components/Button";
 import "./PopupEvento.css";
@@ -13,14 +14,20 @@ const ETIQUETAS_TIPO = {
 };
 
 function Trofeo({ titulo }) {
+    // Fallback visual: si la URL falla o no hay imagen, nunca se rompe el
+    // perfil del jugador (auditoría de títulos).
+    const [imagenRota, setImagenRota] = useState(false);
+    const mostrarImagen = titulo.imagen && !imagenRota;
+
     return (
         <div className="popup-titulo-trofeo" aria-hidden="true">
-            {titulo.imagen ? (
+            {mostrarImagen ? (
                 <Image
                     src={titulo.imagen}
                     alt={titulo.nombre}
                     width={140}
                     height={140}
+                    onError={() => setImagenRota(true)}
                 />
             ) : (
                 <span>🏆</span>

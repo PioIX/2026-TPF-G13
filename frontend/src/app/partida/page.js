@@ -12,6 +12,17 @@ import PopupRendimiento from "@/components/PopupRendimiento";
 import PopupTitulo from "@/components/PopupTitulo";
 import PopupCambioClub from "@/components/PopupCambioClub";
 
+// Qué celdas de la grilla 3x3 del dado están encendidas para cada resultado.
+// Orden: fila por fila (1: arriba-izq ... 9: abajo-der).
+const PUNTOS_DADO = {
+    1: [0, 0, 0, 0, 1, 0, 0, 0, 0],
+    2: [1, 0, 0, 0, 0, 0, 0, 0, 1],
+    3: [1, 0, 0, 0, 1, 0, 0, 0, 1],
+    4: [1, 0, 1, 0, 0, 0, 1, 0, 1],
+    5: [1, 0, 1, 0, 1, 0, 1, 0, 1],
+    6: [1, 1, 1, 0, 0, 0, 1, 1, 1],
+};
+
 export default function PartidaPage() {
     const router = useRouter();
     const searchParams = useSearchParams();
@@ -19,7 +30,7 @@ export default function PartidaPage() {
 
     const [idUsuario, setIdUsuario] = useState(null);
     const [jugadores, setJugadores] = useState([]);
-    const [resultadoDado, setResultadoDado] = useState(null);
+
     const [eventoActual, setEventoActual] = useState(null);
     const [mensaje, setMensaje] = useState("Cargando partida...");
     const [conectado, setConectado] = useState(false);
@@ -146,9 +157,7 @@ export default function PartidaPage() {
                         setMostrarEvento(false);
                     }
 
-                    if (jugoYo) {
-                        setResultadoDado(estado.resultadoDado);
-                    } else if (estado.evento) {
+                    if (!jugoYo && estado.evento) {
                         setEventoActual(estado.evento);
                         setMostrarEvento(true);
                     }
@@ -307,15 +316,18 @@ export default function PartidaPage() {
 
                 <div className={`dado-visual${tirandoDado ? " dado-visual--animando" : ""}`} aria-live="polite" aria-label={tirandoDado ? "El dado está girando" : `Resultado del dado: ${resultadoMostrado ?? "todavía no lanzado"}`}>
                     <span className={`dado-visual-cara-dibujo${tirandoDado || !resultadoMostrado ? " dado-visual-cara-dibujo--oculta" : ""}`} aria-hidden="true">
-                        {resultadoMostrado ? <span className={`dado-puntos dado-puntos--${resultadoMostrado}`} /> : null}
+                        {resultadoMostrado ? PUNTOS_DADO[resultadoMostrado].map((celda, indice) => (
+                            <span
+                                key={indice}
+                                className={`dado-punto${celda ? " dado-punto--encendido" : ""}`}
+                                style={{ gridArea: `${Math.floor(indice / 3) + 1} / ${(indice % 3) + 1}` }}
+                            />
+                        )) : null}
                     </span>
                     <span className="dado-visual-cara dado-visual-cara--movimiento" aria-hidden="true">⚄</span>
                 </div>
 
-                <p>
-                    Resultado del dado:{" "}
-                    {resultadoDado ?? "Todavía no lanzado"}
-                </p>
+
 
                 <Button
                     type="button"

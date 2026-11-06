@@ -21,6 +21,7 @@ export default function PanelJugador(props) {
                     ["Usuario", jugador.nombre_usuario ?? "--"],
                     ["Club", jugador.nombre_club ?? "Sin club"],
                     ["Liga", jugador.liga ?? "Sin liga"],
+                    ["Selección", jugador.nombre_seleccion ?? "Sin selección"],
                     ["Edad", jugador.edad ?? "--"],
                     ["GRL", jugador.grl ?? "--"],
                     ["Posición", jugador.posicion_actual ?? 1],
@@ -30,8 +31,9 @@ export default function PanelJugador(props) {
                     ["Goles", jugador.goles ?? 0],
                     ["Asistencias", jugador.asistencias ?? 0],
                     ["Partidos", jugador.partidos_jugados ?? 0],
+                    ["Títulos ganados", jugador.cantidad_titulos ?? 0],
                     ["Puntos de campeón", jugador.puntos_campeon ?? 0],
-                    ["Título", jugador.nombre_titulo ?? "Ninguno"]
+                    ["Último título", jugador.nombre_titulo ?? "Ninguno"]
                 ].map(([etiqueta, valor]) => (
                     <div key={etiqueta}>
                         <dt>{etiqueta}</dt>
