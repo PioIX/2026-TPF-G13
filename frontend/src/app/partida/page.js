@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { io } from "socket.io-client";
 import Tablero from "@/components/Tablero";
@@ -24,6 +24,7 @@ const PUNTOS_DADO = {
 };
 
 export default function PartidaPage() {
+    const router = useRouter();
     const searchParams = useSearchParams();
     const idPartida = searchParams.get("id_partida");
 
@@ -42,8 +43,10 @@ export default function PartidaPage() {
     const [tirandoDado, setTirandoDado] = useState(false);
     const [resultadoMostrado, setResultadoMostrado] = useState(null);
     const [cambioClubPendiente, setCambioClubPendiente] = useState(null);
+    const [partidaTerminada, setPartidaTerminada] = useState(false);
 
     const socketRef = useRef(null);
+    const redireccionFinalRef = useRef(null);
     const temporizadorTiradaRef = useRef(null);
     const temporizadorEventoRef = useRef(null);
     const inicioTiradaRef = useRef(null);
@@ -182,6 +185,26 @@ export default function PartidaPage() {
                     );
                 });
 
+                // Alguien llegó al casillero 20: la carrera terminó.
+                // Se deja ver el último evento y después se pasa a la
+                // pantalla final, que revela las estadísticas de a poco.
+                socket.on("partidaFinalizada", (datos) => {
+                    if (Number(datos.idPartida) !== Number(idPartida)) return;
+
+                    setPartidaTerminada(true);
+                    setMensaje("La carrera terminó. Preparando los resultados...");
+
+                    // Se espera a que el jugador cierre el último evento
+                    // (o un máximo de 12 s) para no cortar la secuencia.
+                    if (redireccionFinalRef.current) {
+                        clearTimeout(redireccionFinalRef.current);
+                    }
+
+                    redireccionFinalRef.current = setTimeout(() => {
+                        router.push(`/finaljuego?id_partida=${idPartida}`);
+                    }, 12000);
+                });
+
                 socket.on("errorPartida", (error) => {
                     setMensaje(error.mensaje);
                 });
@@ -204,6 +227,10 @@ export default function PartidaPage() {
                 clearTimeout(temporizadorEventoRef.current);
                 temporizadorEventoRef.current = null;
             }
+            if (redireccionFinalRef.current) {
+                clearTimeout(redireccionFinalRef.current);
+                redireccionFinalRef.current = null;
+            }
 
             if (socket) {
                 socket.disconnect();
@@ -211,7 +238,7 @@ export default function PartidaPage() {
 
             socketRef.current = null;
         };
-    }, [idPartida]);
+    }, [idPartida, router]);
 
     function lanzarDado() {
         if (!socketRef.current || !conectado || !esMiTurno) {
@@ -310,14 +337,23 @@ export default function PartidaPage() {
                         !conectado ||
                         tirandoDado ||
                         !esMiTurno ||
-                        !ambosListos
+                        !ambosListos ||
+                        partidaTerminada
                     }
                 />
 
                 <p>{mensaje}</p>
 
-                {!esMiTurno && (
+                {!esMiTurno && !partidaTerminada && (
                     <p>Esperando el turno del rival.</p>
+                )}
+
+                {partidaTerminada && (
+                    <Button
+                        type="button"
+                        text="Ver resultados"
+                        onClick={() => router.push(`/finaljuego?id_partida=${idPartida}`)}
+                    />
                 )}
             </section>
 
@@ -326,6 +362,17 @@ export default function PartidaPage() {
                 evento={mostrarEvento ? eventoActual : null}
                 onContinuar={() => {
                     setMostrarEvento(false);
+
+                    // Si la carrera terminó, después del último evento se
+                    // pasa directo a la pantalla final.
+                    if (partidaTerminada) {
+                        if (redireccionFinalRef.current) {
+                            clearTimeout(redireccionFinalRef.current);
+                            redireccionFinalRef.current = null;
+                        }
+                        router.push(`/finaljuego?id_partida=${idPartida}`);
+                        return;
+                    }
 
                     if (rendimientoActual) {
                         setMostrarRendimiento(true);

@@ -1,0 +1,215 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import Button from "@/components/Button";
+import "./ranking.css";
+
+const API_BASE = "http://localhost:4000";
+
+function formatearNumero(valor) {
+    const numero = Number(valor);
+    if (!Number.isFinite(numero)) return "0";
+    return numero.toLocaleString("es-AR");
+}
+
+function formatearFecha(valor) {
+    if (!valor) return "—";
+
+    const fecha = new Date(valor);
+    if (Number.isNaN(fecha.getTime())) return valor;
+
+    return fecha.toLocaleString("es-AR", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric"
+    });
+}
+
+export default function RankingPage() {
+    const router = useRouter();
+
+    const [ranking, setRanking] = useState([]);
+    const [resumen, setResumen] = useState(null);
+    const [idUsuario, setIdUsuario] = useState(null);
+    const [cargando, setCargando] = useState(true);
+    const [error, setError] = useState("");
+
+    useEffect(() => {
+        let cancelado = false;
+
+        Promise.all([
+            fetch(`${API_BASE}/ranking`, { credentials: "include" }).then(
+                (respuesta) => {
+                    if (!respuesta.ok) {
+                        return respuesta.json().then((datos) => {
+                            throw new Error(datos.error || "No se pudo cargar el ranking");
+                        });
+                    }
+                    return respuesta.json();
+                }
+            ),
+            fetch(`${API_BASE}/ranking/mi-resumen`, {
+                credentials: "include"
+            }).then((respuesta) => (respuesta.ok ? respuesta.json() : {}))
+        ])
+            .then(([datosRanking, datosResumen]) => {
+                if (cancelado) return;
+
+                setRanking(datosRanking.ranking ?? []);
+                setIdUsuario(Number(datosRanking.idUsuario));
+                setResumen(datosResumen);
+            })
+            .catch((error) => {
+                if (cancelado) return;
+                console.error(error);
+                setError(error.message);
+            })
+            .finally(() => {
+                if (cancelado) return;
+                setCargando(false);
+            });
+
+        return () => {
+            cancelado = true;
+        };
+    }, []);
+
+    if (cargando) {
+        return <p className="game-state">Cargando ranking...</p>;
+    }
+
+    if (error) {
+        return (
+            <main className="ranking-page">
+                <section className="ranking-panel ranking-panel--solo">
+                    <p className="ranking-error">{error}</p>
+                    <Button
+                        type="button"
+                        text="Volver al inicio"
+                        onClick={() => router.push("/inicio")}
+                    />
+                </section>
+            </main>
+        );
+    }
+
+    return (
+        <main className="ranking-page">
+            <section className="ranking-panel">
+                <header className="ranking-encabezado">
+                    <div>
+                        <p className="ranking-etiqueta">HISTORIAL DE LEYENDAS</p>
+                        <h1 className="ranking-titulo">Ranking</h1>
+                        <p className="ranking-subtitulo">
+                            Las mejores carreras terminadas de El Trayecto.
+                        </p>
+                    </div>
+
+                    <div className="ranking-acciones-encabezado">
+                        <Button
+                            type="button"
+                            text="Volver al inicio"
+                            onClick={() => router.push("/inicio")}
+                        />
+                    </div>
+                </header>
+
+                {resumen && (
+                    <div className="ranking-resumen">
+                        {[
+                            ["Carreras", resumen.carreras],
+                            ["Victorias", resumen.victorias],
+                            ["Mejor puntaje", resumen.mejor_puntaje],
+                            ["Mejor GRL", resumen.mejor_grl],
+                            ["Goles", resumen.goles_totales],
+                            ["Asistencias", resumen.asistencias_totales]
+                        ].map(([etiqueta, valor]) => (
+                            <div key={etiqueta} className="ranking-resumen-dato">
+                                <span>{etiqueta}</span>
+                                <strong>{formatearNumero(valor)}</strong>
+                            </div>
+                        ))}
+                    </div>
+                )}
+
+                <div className="ranking-tabla-contenedor">
+                    <table className="ranking-tabla">
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>Leyenda</th>
+                                <th>Jugador</th>
+                                <th>Club</th>
+                                <th>Puntaje</th>
+                                <th>GRL máx.</th>
+                                <th>Goles</th>
+                                <th>Asist.</th>
+                                <th>Fama</th>
+                                <th>Plata</th>
+                                <th>Idolatría</th>
+                                <th>Partida</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {ranking.length === 0 && (
+                                <tr>
+                                    <td colSpan={12} className="ranking-tabla-vacia">
+                                        Todavía no hay carreras terminadas.
+                                    </td>
+                                </tr>
+                            )}
+
+                            {ranking.map((fila) => {
+                                const esMia = Number(fila.id_usuario) === idUsuario;
+
+                                return (
+                                    <tr
+                                        key={fila.id_participante}
+                                        className={esMia ? "ranking-fila--mia" : ""}
+                                    >
+                                        <td className="ranking-puesto">
+                                            {fila.puesto}
+                                            {fila.gano && (
+                                                <span
+                                                    className="ranking-copa"
+                                                    title="Ganó la partida"
+                                                    aria-label="Ganó la partida"
+                                                >
+                                                    🏆
+                                                </span>
+                                            )}
+                                        </td>
+                                        <td>{fila.nombre_leyenda || "—"}</td>
+                                        <td>
+                                            {fila.nombre_usuario}
+                                            {esMia && (
+                                                <span className="ranking-chip">Vos</span>
+                                            )}
+                                        </td>
+                                        <td>{fila.nombre_club || "Sin club"}</td>
+                                        <td className="ranking-puntaje">
+                                            {formatearNumero(fila.puntaje)}
+                                        </td>
+                                        <td>{formatearNumero(fila.grl_maxima)}</td>
+                                        <td>{formatearNumero(fila.goles)}</td>
+                                        <td>{formatearNumero(fila.asistencias)}</td>
+                                        <td>{formatearNumero(fila.fama)}</td>
+                                        <td>${formatearNumero(fila.plata)}</td>
+                                        <td>{formatearNumero(fila.idolatria)}</td>
+                                        <td>
+                                            {fila.nombre_sala}
+                                            <span className="ranking-fecha">
+                                                {formatearFecha(fila.fecha_fin)}
+                                            </span>
+                                        </td>
+                                    </tr>
+                                );
+                            })}
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        </main>
+    );
+}

@@ -1766,7 +1766,11 @@ io.on("connection", (socket) => {
         lesion_hasta_temporada = ?,
         edad = ?,
         id_seleccion = ?,
-        grl = LEAST(99, GREATEST(1, grl + ?))
+        grl = LEAST(99, GREATEST(1, grl + ?)),
+        grl_maxima = GREATEST(
+            COALESCE(grl_maxima, 0),
+            LEAST(99, GREATEST(1, grl + ?))
+        )
      WHERE id_partida = ?
        AND id_usuario = ?`,
             [
@@ -1782,6 +1786,7 @@ io.on("connection", (socket) => {
               lesionNuevaHasta,
               18 + nuevaPosicion - 1,
               nuevaIdSeleccion,
+              cambioGRL,
               cambioGRL,
               idPartida,
               idUsuario
@@ -2008,6 +2013,21 @@ io.on("connection", (socket) => {
 
           await cambiarTurno();
 
+          // Fin de la carrera: al llegar al casillero 20 (última
+          // temporada) se cierra la partida, se define el ganador y se
+          // guarda el resultado para la pantalla final y el ranking.
+          let partidaFinalizada = false;
+          let ganadorFinal = null;
+
+          if (nuevaPosicion >= CASILLERO_FINAL) {
+            const resultadoFinal = await finalizarPartida(
+              query,
+              idPartida
+            );
+            partidaFinalizada = true;
+            ganadorFinal = resultadoFinal.ganador;
+          }
+
           // Eventos de cambio de club: generamos 3 opciones con la
           // misma jerarquía (o la indicada por el evento) para que
           // el jugador elija su nuevo equipo.
@@ -2169,6 +2189,8 @@ io.on("connection", (socket) => {
                   }
                 : null
             },
+            partidaFinalizada,
+            ganador: ganadorFinal,
             turnoPerdido: false
           };
         }
@@ -2193,6 +2215,12 @@ io.on("connection", (socket) => {
 
       socket.emit("estadoPartidaActualizado", resultadoTurno);
 
+      // Si alguien llegó al final, avisamos a toda la sala para que
+      // ambos clientes pasen a la pantalla de resultados.
+      if (resultadoTurno.partidaFinalizada) {
+        io.to(`partida_${idPartida}`).emit("partidaFinalizada", {
+          idPartida,
+          ganador: resultadoTurno.ganador
       // "Muerta" (fin de carrera): la partida terminó para ambos. Se avisa
       // a TODA la sala con el evento visible (incluido el rival).
       if (evento?.fin_partida) {
@@ -2219,6 +2247,190 @@ io.on("connection", (socket) => {
   });
 });
 
+
+//
+// ============================================================================
+// FIN DE PARTIDA Y RANKING
+// ============================================================================
+//
+
+// Última casilla del tablero: al alcanzarla termina la carrera.
+const CASILLERO_FINAL = 20;
+
+/**
+ * Puntaje de una carrera. Se usa para desempatar cuando los dos
+ * jugadores llegan al final y para armar el ranking histórico.
+ *
+ * La idolatría pesa más que la fama y la plata porque es lo que
+ * define a una leyenda; los goles y asistencias suman el rendimiento
+ * deportivo y el GRL máximo premia el techo futbolístico alcanzado.
+ */
+function calcularPuntajeCarrera(jugador) {
+  const numero = (valor) => {
+    const convertido = Number(valor);
+    return Number.isFinite(convertido) ? convertido : 0;
+  };
+
+  return Math.round(
+    numero(jugador.idolatria) * 3 +
+    numero(jugador.fama) * 2 +
+    numero(jugador.plata) * 0.5 +
+    numero(jugador.goles) * 4 +
+    numero(jugador.asistencias) * 2 +
+    numero(jugador.grl_maxima) * 10
+  );
+}
+
+/**
+ * Cierra la partida: marca el estado, guarda el ganador y el puntaje
+ * de cada participante. Es idempotente: si la partida ya estaba
+ * finalizada devuelve el ganador guardado sin recalcular nada.
+ */
+async function finalizarPartida(query, idPartida) {
+  const partidas = await query(
+    `SELECT id_partida, estado, id_ganador
+       FROM Partida
+      WHERE id_partida = ?
+      FOR UPDATE`,
+    [idPartida]
+  );
+
+  if (partidas.length === 0) {
+    return { ganador: null };
+  }
+
+  const participantes = await query(
+    `SELECT
+        pp.id_participante,
+        pp.id_usuario,
+        pp.goles,
+        pp.asistencias,
+        pp.fama,
+        pp.plata,
+        pp.idolatria,
+        pp.grl,
+        pp.grl_maxima
+     FROM ParticipantePartida pp
+     WHERE pp.id_partida = ?`,
+    [idPartida]
+  );
+
+  const conPuntaje = participantes.map((jugador) => ({
+    ...jugador,
+    puntaje: calcularPuntajeCarrera(jugador)
+  }));
+
+  // Desempate: puntaje, luego GRL máxima, luego goles.
+  const ordenados = [...conPuntaje].sort((a, b) =>
+    b.puntaje - a.puntaje ||
+    (Number(b.grl_maxima) || 0) - (Number(a.grl_maxima) || 0) ||
+    (Number(b.goles) || 0) - (Number(a.goles) || 0)
+  );
+
+  const ganador = ordenados[0] ?? null;
+
+  if (partidas[0].estado === "finalizada") {
+    return { ganador };
+  }
+
+  for (const jugador of conPuntaje) {
+    await query(
+      `UPDATE ParticipantePartida
+          SET puntaje_final = ?
+        WHERE id_participante = ?`,
+      [jugador.puntaje, jugador.id_participante]
+    );
+  }
+
+  await query(
+    `UPDATE Partida
+        SET estado = 'finalizada',
+            fecha_fin = COALESCE(fecha_fin, NOW()),
+            id_ganador = ?
+      WHERE id_partida = ?`,
+    [ganador ? Number(ganador.id_usuario) : null, idPartida]
+  );
+
+  return { ganador };
+}
+
+/**
+ * Devuelve las estadísticas finales de los dos participantes de una
+ * partida, ordenadas por puntaje. Cada jugador recibe además su
+ * posición (1 o 2) y si ganó.
+ */
+async function obtenerResultadoPartida(idPartida) {
+  const partidas = await mysql.realizarQuery(
+    `SELECT
+        p.id_partida,
+        p.nombre_sala,
+        p.estado,
+        p.fecha_inicio,
+        p.fecha_fin,
+        p.id_ganador
+     FROM Partida p
+     WHERE p.id_partida = ?`,
+    [idPartida]
+  );
+
+  if (partidas.length === 0) return null;
+
+  const jugadores = await mysql.realizarQuery(
+    `SELECT
+        pp.id_participante,
+        pp.id_usuario,
+        pp.nombre_leyenda,
+        pp.posicion_actual,
+        pp.goles,
+        pp.asistencias,
+        pp.partidos_jugados,
+        pp.fama,
+        pp.plata,
+        pp.idolatria,
+        pp.grl,
+        pp.grl_maxima,
+        pp.puntaje_final,
+        u.nombre_usuario,
+        c.nombre AS nombre_club,
+        c.liga
+     FROM ParticipantePartida pp
+     INNER JOIN Usuario u
+        ON pp.id_usuario = u.id_usuario
+     LEFT JOIN Club c
+        ON pp.id_club = c.id_club
+     WHERE pp.id_partida = ?`,
+    [idPartida]
+  );
+
+  const conPuntaje = jugadores.map((jugador) => ({
+    ...jugador,
+    puntaje: Number(jugador.puntaje_final) || calcularPuntajeCarrera(jugador)
+  }));
+
+  const ordenados = [...conPuntaje].sort((a, b) =>
+    b.puntaje - a.puntaje ||
+    (Number(b.grl_maxima) || 0) - (Number(a.grl_maxima) || 0) ||
+    (Number(b.goles) || 0) - (Number(a.goles) || 0)
+  );
+
+  const partida = partidas[0];
+
+  return {
+    partida: {
+      id_partida: partida.id_partida,
+      nombre_sala: partida.nombre_sala,
+      estado: partida.estado,
+      fecha_inicio: partida.fecha_inicio,
+      fecha_fin: partida.fecha_fin,
+      id_ganador: partida.id_ganador
+    },
+    jugadores: ordenados.map((jugador, indice) => ({
+      ...jugador,
+      posicion_final: indice + 1,
+      gano: indice === 0
+    }))
+  };
+}
 
 async function obtenerJugadores(query, idPartida) {
   return await query(
@@ -2767,6 +2979,160 @@ app.get("/partidas/:idPartida/puntajeFinal", async (req, res) => {
   } catch (error) {
     console.error("Error al calcular el puntaje final:", error);
     return res.status(500).json({ error: "Error al calcular el puntaje final" });
+  }
+});
+
+//
+// ============================================================================
+// RESULTADO FINAL DE LA PARTIDA
+// ============================================================================
+//
+
+// Devuelve las estadísticas finales de los dos jugadores.
+// Cada cliente recibe a ambos, pero la pantalla final solo revela
+// primero las propias y después las del rival.
+app.get("/partidas/:idPartida/final", async (req, res) => {
+  try {
+    if (!req.session.usuario) {
+      return res.status(401).json({ error: "Tenés que iniciar sesión" });
+    }
+
+    const idPartida = Number(req.params.idPartida);
+    const idUsuario = Number(req.session.usuario.id_usuario);
+
+    if (!Number.isInteger(idPartida) || idPartida <= 0) {
+      return res.status(400).json({ error: "Identificador de partida inválido" });
+    }
+
+    const resultado = await obtenerResultadoPartida(idPartida);
+
+    if (!resultado) {
+      return res.status(404).json({ error: "La partida no existe" });
+    }
+
+    const participa = resultado.jugadores.some(
+      (jugador) => Number(jugador.id_usuario) === idUsuario
+    );
+
+    if (!participa) {
+      return res.status(403).json({ error: "No participás de esta partida" });
+    }
+
+    return res.status(200).json({
+      ...resultado,
+      idUsuario
+    });
+  } catch (error) {
+    console.error("Error al obtener el resultado final:", error);
+
+    return res.status(500).json({
+      error: "No se pudo obtener el resultado de la partida"
+    });
+  }
+});
+
+//
+// ============================================================================
+// RANKING HISTÓRICO
+// ============================================================================
+//
+
+// Ranking de todas las carreras finalizadas. Cada fila es una carrera
+// (un participante de una partida terminada), ordenada por puntaje.
+app.get("/ranking", async (req, res) => {
+  try {
+    if (!req.session.usuario) {
+      return res.status(401).json({ error: "Tenés que iniciar sesión" });
+    }
+
+    const limite = Math.min(
+      200,
+      Math.max(1, Number(req.query.limite) || 50)
+    );
+
+    const filas = await mysql.realizarQuery(
+      `SELECT
+          pp.id_participante,
+          pp.id_usuario,
+          u.nombre_usuario,
+          pp.nombre_leyenda,
+          c.nombre AS nombre_club,
+          c.liga,
+          pp.goles,
+          pp.asistencias,
+          pp.partidos_jugados,
+          pp.fama,
+          pp.plata,
+          pp.idolatria,
+          pp.grl,
+          pp.grl_maxima,
+          pp.puntaje_final,
+          p.id_partida,
+          p.nombre_sala,
+          p.fecha_fin,
+          CASE WHEN p.id_ganador = pp.id_usuario THEN 1 ELSE 0 END AS gano
+       FROM ParticipantePartida pp
+       INNER JOIN Partida p
+          ON p.id_partida = pp.id_partida
+       INNER JOIN Usuario u
+          ON u.id_usuario = pp.id_usuario
+       LEFT JOIN Club c
+          ON c.id_club = pp.id_club
+       WHERE p.estado = 'finalizada'
+       ORDER BY pp.puntaje_final DESC, pp.grl_maxima DESC, pp.goles DESC
+       LIMIT ?`,
+      [limite]
+    );
+
+    const ranking = filas.map((fila, indice) => ({
+      ...fila,
+      puesto: indice + 1,
+      puntaje: Number(fila.puntaje_final) || calcularPuntajeCarrera(fila),
+      gano: Number(fila.gano) === 1
+    }));
+
+    return res.status(200).json({
+      idUsuario: Number(req.session.usuario.id_usuario),
+      ranking
+    });
+  } catch (error) {
+    console.error("Error al obtener el ranking:", error);
+
+    return res.status(500).json({ error: "No se pudo obtener el ranking" });
+  }
+});
+
+// Resumen histórico del usuario logueado: carreras jugadas, victorias
+// y su mejor carrera. Se muestra arriba de la tabla del ranking.
+app.get("/ranking/mi-resumen", async (req, res) => {
+  try {
+    if (!req.session.usuario) {
+      return res.status(401).json({ error: "Tenés que iniciar sesión" });
+    }
+
+    const idUsuario = Number(req.session.usuario.id_usuario);
+
+    const resumen = await mysql.realizarQuery(
+      `SELECT
+          COUNT(*) AS carreras,
+          COALESCE(SUM(CASE WHEN p.id_ganador = pp.id_usuario THEN 1 ELSE 0 END), 0) AS victorias,
+          COALESCE(MAX(pp.puntaje_final), 0) AS mejor_puntaje,
+          COALESCE(MAX(pp.grl_maxima), 0) AS mejor_grl,
+          COALESCE(SUM(pp.goles), 0) AS goles_totales,
+          COALESCE(SUM(pp.asistencias), 0) AS asistencias_totales
+       FROM ParticipantePartida pp
+       INNER JOIN Partida p
+          ON p.id_partida = pp.id_partida
+       WHERE pp.id_usuario = ?
+         AND p.estado = 'finalizada'`,
+      [idUsuario]
+    );
+
+    return res.status(200).json(resumen[0] ?? {});
+  } catch (error) {
+    console.error("Error al obtener el resumen del jugador:", error);
+
+    return res.status(500).json({ error: "No se pudo obtener el resumen" });
   }
 });
 
