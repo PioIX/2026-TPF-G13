@@ -567,12 +567,51 @@ app.post("/partidas/:idPartida/cambioClub", async (req, res) => {
                 pp.id_club,
                 pp.nombre_leyenda,
                 pp.posicion_actual,
+                pp.id_seleccion,
+                pp.id_nacionalidad,
+                pp.grl,
+                pp.edad,
+                pp.goles,
+                pp.asistencias,
+                pp.partidos_jugados,
+                pp.fama,
+                pp.plata,
+                pp.idolatria,
+                pp.puntos_campeon,
+                pp.lesionado,
+                pp.turnos_pendientes_perdidos,
+                pp.id_titulo,
+                pp.id_titulo_individual,
+                pp.id_titulo_internacional,
                 c.nombre AS nombre_club,
                 c.liga,
-                c.jerarquia AS jerarquia_club
+                c.jerarquia AS jerarquia_club,
+                sel.nombre AS nombre_seleccion,
+                nat.nombre AS nacionalidad,
+                t.nombre AS nombre_titulo,
+                t.imagen AS imagen_titulo,
+                t.prestigio AS prestigio_titulo,
+                ti.nombre AS nombre_titulo_individual,
+                ti.imagen AS imagen_titulo_individual,
+                ti.prestigio AS prestigio_titulo_individual,
+                tint.nombre AS nombre_titulo_internacional,
+                tint.imagen AS imagen_titulo_internacional,
+                tint.prestigio AS prestigio_titulo_internacional,
+                (SELECT COUNT(*) FROM TituloGanado tg
+                  WHERE tg.id_participante = pp.id_participante) AS cantidad_titulos
               FROM ParticipantePartida pp
               LEFT JOIN Club c
                 ON pp.id_club = c.id_club
+              LEFT JOIN Seleccion sel
+                ON pp.id_seleccion = sel.id_seleccion
+              LEFT JOIN Seleccion nat
+                ON nat.id_seleccion = pp.id_nacionalidad
+              LEFT JOIN Titulo t
+                ON pp.id_titulo = t.id_titulo
+              LEFT JOIN TituloIndividual ti
+                ON pp.id_titulo_individual = ti.id_titulo_individual
+              LEFT JOIN TituloInternacional tint
+                ON pp.id_titulo_internacional = tint.id_titulo_internacional
               WHERE pp.id_partida = ?`,
       [idPartida]
     );
@@ -619,7 +658,7 @@ app.post("/registro", async (req, res) => {
 
     // Insertamos el nuevo usuario. El rol no se toma del request: siempre será jugador.
     await mysql.realizarQuery(
-      "INSERT INTO Usuario (nombre_usuario, email, contrasena, rol) VALUES (?, ?, 'jugador')",
+      "INSERT INTO Usuario (nombre_usuario, email, contrasena, rol) VALUES (?, ?, ?, 'jugador')",
       [nombre, correo, contrasena]
     );
 
@@ -1859,6 +1898,31 @@ io.on("connection", (socket) => {
             }
           }
 
+          // Títulos colectivos ya ganados por el RIVAL en esta carrera:
+          // alimenta la regla "un solo campeón por liga compartida".
+          let titulosColectivosRival = [];
+          const participanteRival = (jugadores || []).find(
+            (j) => Number(j.id_participante) !== Number(jugador.id_participante)
+          );
+          let ligaRival = null;
+          if (participanteRival?.id_club) {
+            const clubRival = await query(
+              `SELECT liga FROM Club WHERE id_club = ?`,
+              [participanteRival.id_club]
+            );
+            ligaRival = clubRival[0]?.liga || null;
+          }
+          if (participanteRival && ligaRival) {
+            titulosColectivosRival = await query(
+              `SELECT t.id_titulo, t.nombre, t.pais
+                 FROM TituloGanado tg
+                 JOIN Titulo t ON t.id_titulo = tg.id_titulo
+                WHERE tg.id_participante = ?
+                  AND tg.id_titulo IS NOT NULL`,
+              [participanteRival.id_participante]
+            );
+          }
+
           // Participación real en torneos de selecciones: convocado y sin
           // lesión que lo dejara fuera (condición actual de la temporada).
           const jugoConLaSeleccion =
@@ -1890,6 +1954,10 @@ io.on("connection", (socket) => {
             paisClub: paisClubJugador,
             continenteClub: continenteClubJugador,
             pudoDisputarTemporada,
+            // Coherencia entre jugadores: si el rival juega en la MISMA liga
+            // y ya salió campeón de esa liga en esta carrera, no puede
+            // haber dos campeones de la misma liga el mismo año.
+            titulosColectivosRival,
             query
           });
 
@@ -2069,6 +2137,20 @@ io.on("connection", (socket) => {
             //   los de la misma liga).
             // - Vuelta a casa: SOLO los clubes en los que ya jugó
             //   (validación contra el historial real de la carrera).
+            // Clubes de los RIVALES de la partida: no se ofrecen como
+            // destino (el rival juega ahí; fichar por su club es una
+            // incongruencia, sobre todo en la misma liga).
+            const rivales = (jugadores || []).filter(
+              (j) => Number(j.id_participante) !== Number(jugador.id_participante)
+            );
+            const idsClubesRivales = rivales
+              .map((j) => Number(j.id_club))
+              .filter((id) => Number.isInteger(id) && id > 0);
+            const excluidosRivales = idsClubesRivales.length > 0
+              ? `AND id_club NOT IN (${idsClubesRivales.map(() => "?").join(",")})`
+              : "";
+            const paramsRivales = idsClubesRivales;
+
             let candidatos = [];
 
             if (codigoEvento === "club_vuelta_casa" && esquemaEventos.clubesHistorico) {
@@ -2081,6 +2163,12 @@ io.on("connection", (socket) => {
                     AND c.id_club <> ?`,
                 [jugador.id_participante, jugador.id_club || 0]
               );
+              // El club actual del RIVAL tampoco es un "hogar" válido.
+              if (idsClubesRivales.length > 0 && candidatos && candidatos.length > 0) {
+                candidatos = candidatos.filter(
+                (c) => !idsClubesRivales.includes(Number(c.id_club))
+                );
+              }
               // Fallback: si el historial está vacío (partidas viejas),
               // permitimos clubes de la misma liga y jerarquía igual o
               // menor (un "regreso" coherente con la carrera).
@@ -2088,15 +2176,16 @@ io.on("connection", (socket) => {
                 candidatos = await query(
                   `SELECT id_club, nombre, liga, jerarquia
                      FROM Club
-                    WHERE jerarquia <= ?
-                      AND id_club <> ?`,
-                  [jerarquiaDestino, jugador.id_club || 0]
+                 WHERE jerarquia <= ?
+                   AND id_club <> ?
+                   ${excluidosRivales}`,
+                  [jerarquiaDestino, jugador.id_club || 0, ...paramsRivales]
                 );
               }
             } else {
               const filtroPais = destinoInternacional
-                ? `AND liga <> (SELECT liga FROM Club WHERE id_club = ?)`
-                : ``;
+               ? `AND liga <> (SELECT liga FROM Club WHERE id_club = ?)`
+               : ``;
               const paramsPais = destinoInternacional
                 ? [jugador.id_club]
                 : [];
@@ -2105,8 +2194,9 @@ io.on("connection", (socket) => {
                    FROM Club
                   WHERE jerarquia = ?
                     AND id_club <> ?
-                    ${filtroPais}`,
-                [jerarquiaDestino, jugador.id_club || 0, ...paramsPais]
+                    ${filtroPais}
+                    ${excluidosRivales}`,
+                [jerarquiaDestino, jugador.id_club || 0, ...paramsPais, ...paramsRivales]
               );
             }
 
@@ -2122,16 +2212,17 @@ io.on("connection", (socket) => {
               const extras = await query(
                 `SELECT id_club, nombre, liga, jerarquia
                    FROM Club
-                  WHERE jerarquia <> ?
-                    AND id_club <> ?
-                    ${destinoInternacional ? "AND liga <> (SELECT liga FROM Club WHERE id_club = ?)" : ""}
+                 WHERE jerarquia <> ?
+                  AND id_club <> ?
+                  ${destinoInternacional ? "AND liga <> (SELECT liga FROM Club c2 WHERE c2.id_club = ?)" : ""}
+                  ${excluidosRivales}
                   ORDER BY ABS(jerarquia - ?) ASC, RAND() ASC
                   LIMIT ?`,
                 destinoInternacional
                   ? [jerarquiaDestino, jugador.id_club || 0, jugador.id_club,
-                     jerarquiaDestino, 3 - opcionesCambioClub.length]
+                     ...paramsRivales, jerarquiaDestino, 3 - opcionesCambioClub.length]
                   : [jerarquiaDestino, jugador.id_club || 0,
-                     jerarquiaDestino, 3 - opcionesCambioClub.length]
+                     ...paramsRivales, jerarquiaDestino, 3 - opcionesCambioClub.length]
               );
               opcionesCambioClub = [
                 ...opcionesCambioClub,
@@ -2393,6 +2484,8 @@ async function obtenerResultadoPartida(idPartida) {
         pp.grl,
         pp.grl_maxima,
         pp.puntaje_final,
+        pp.id_nacionalidad,
+        nat.nombre AS nacionalidad,
         u.nombre_usuario,
         c.nombre AS nombre_club,
         c.liga
@@ -2401,13 +2494,16 @@ async function obtenerResultadoPartida(idPartida) {
         ON pp.id_usuario = u.id_usuario
      LEFT JOIN Club c
         ON pp.id_club = c.id_club
+     LEFT JOIN Seleccion nat
+        ON nat.id_seleccion = pp.id_nacionalidad
      WHERE pp.id_partida = ?`,
     [idPartida]
   );
 
   const conPuntaje = jugadores.map((jugador) => ({
     ...jugador,
-    puntaje: Number(jugador.puntaje_final) || calcularPuntajeCarrera(jugador)
+    puntaje: Number(jugador.puntaje_final) || calcularPuntajeCarrera(jugador),
+    moneda: monedaPorSeleccion(jugador.nacionalidad)
   }));
 
   const ordenados = [...conPuntaje].sort((a, b) =>
@@ -2586,9 +2682,25 @@ async function procesarTitulosTemporada({
   paisClub,
   continenteClub,        // confederación del CLUB (auditoría)
   pudoDisputarTemporada, // false si terminó la carrera / temporada perdida
+  titulosColectivosRival, // títulos colectivos del rival (coherencia multi-jugador)
   query
 }) {
   const titulosGanados = [];
+
+  /**
+   * ¿El RIVAL ya ganó este título? Solo aplica a títulos de LIGA cuando el
+   * rival juega en la misma liga: una liga tiene un solo campeón por año.
+   */
+  const bloqueadoPorRival = (titulo, ligaClub, titulosRival) => {
+    if (!ligaClub || !titulosRival || titulosRival.length === 0) return false;
+    const paisLiga = titulosModulo.MAPA_LIGA_A_PAIS[ligaClub];
+    if (!paisLiga) return false;
+    return titulosRival.some((previo) =>
+      titulosModulo.esLiga(previo.nombre) &&
+      titulosModulo.normalizarTexto(previo.pais) ===
+        titulosModulo.normalizarTexto(paisLiga)
+    );
+  };
 
   // Sin temporada disputada no hay título posible: ni colectivo (el equipo
   // jugó sin vos), ni internacional (no participaste), ni individual.
@@ -2617,14 +2729,29 @@ async function procesarTitulosTemporada({
       titulosGanados.push({ tipo, ...titulo });
 
       // Sistema de puntaje: el título suma DIRECTAMENTE sus
-      // puntos_campeon a ParticipantePartida. Las stats extra
-      // (fama, plata, idolatría, goles, asistencias) se liquidan
-      // al FINAL de la partida como suplemento.
+      // puntos_campeon a ParticipantePartida, paga su PREMIO EN DINERO
+      // (1 punto_campeon = 100 unidades) y suma FAMA según el prestigio
+      // del trofeo. Los INDIVIDUALES son los que más faman dan (son
+      // reconocimientos PERSONALES) y también levantan la idolatría.
+      // Colectivos: prestigio 1-5 -> 20-100 de fama.
+      // Internacionales: prestigio 1-5 -> 30-150 de fama.
+      // Individuales: prestigio 1-5 -> 50-250 de fama + 10-50 de idolatría.
+      const prestigio = Number(titulo.prestigio) || 0;
+      const famaTitulo =
+        tipo === "individual" ? prestigio * 50 :
+        tipo === "internacional" ? prestigio * 30 :
+        prestigio * 20;
+      const idolatriaTitulo = tipo === "individual" ? prestigio * 10 : 0;
+      const premioDinero = (Number(titulo.puntos_campeon) || 0) * 100;
       await query(
         `UPDATE ParticipantePartida
-            SET puntos_campeon = COALESCE(puntos_campeon, 0) + ?
+            SET puntos_campeon = COALESCE(puntos_campeon, 0) + ?,
+                plata = COALESCE(plata, 0) + ?,
+                fama = COALESCE(fama, 0) + ?,
+                idolatria = COALESCE(idolatria, 0) + ?
           WHERE id_participante = ?`,
-        [Number(titulo.puntos_campeon) || 0, idParticipante]
+        [Number(titulo.puntos_campeon) || 0, premioDinero, famaTitulo,
+         idolatriaTitulo, idParticipante]
       );
 
       await query(
@@ -2702,7 +2829,13 @@ async function procesarTitulosTemporada({
         jerarquia,
         titulosPrevios: listaPrevios,
         temporada
-      })
+      }) &&
+      // Coherencia multi-jugador: si el rival juega en la MISMA liga y ya
+      // ganó el título de liga (o cualquier título nacional del país de la
+      // liga en el mismo año), el trofeo ya tiene dueño. Se filtran los
+      // títulos de LIGA del país de la liga compartida; copas nacionales
+      // pueden compartirlas (se juegan contra otros clubes).
+      !bloqueadoPorRival(titulo, ligaClub, titulosColectivosRival)
     );
 
     const ganadorColectivo = sortearTitulo(
@@ -2908,9 +3041,12 @@ app.get("/partidas/:idPartida/puntajeFinal", async (req, res) => {
             pp.idolatria,
             pp.grl,
             pp.posicion_actual,
+            pp.id_nacionalidad,
+            sel.nombre AS nacionalidad,
             u.nombre_usuario
          FROM ParticipantePartida pp
          INNER JOIN Usuario u ON u.id_usuario = pp.id_usuario
+         LEFT JOIN Seleccion sel ON sel.id_seleccion = pp.id_nacionalidad
          WHERE pp.id_partida = ?`,
       [idPartida]
     );
@@ -2919,15 +3055,17 @@ app.get("/partidas/:idPartida/puntajeFinal", async (req, res) => {
       return res.status(404).json({ error: "La partida no existe" });
     }
 
-    // Suplemento por stats: proporciones pensadas para que ningún
-    // valor domine solo (fama y rendimiento pesan más que la plata).
+    // Suplemento por stats: los TÍTULOS mandan (puntos_campeon ya viene
+    // con el prestigio de cada trofeo). Las stats acompañan: rendimiento
+    // y reconocimiento (fama, idolatría) pesan más que la plata, que con
+    // la escala nueva es un número mucho más grande que el resto.
     const pesos = {
-      goles: 4,
-      asistencias: 3,
-      fama: 1.5,
-      plata: 0.05,
-      idolatria: 1,
-      grl: 2
+      goles: 2,
+      asistencias: 1.5,
+      fama: 2,
+      plata: 0.02,
+      idolatria: 2,
+      grl: 1
     };
 
     const puntajes = participantes.map((p) => {
@@ -2954,6 +3092,7 @@ app.get("/partidas/:idPartida/puntajeFinal", async (req, res) => {
           asistencias: Number(p.asistencias ?? 0),
           fama: Number(p.fama ?? 0),
           plata: Number(p.plata ?? 0),
+          moneda: monedaPorSeleccion(p.nacionalidad),
           idolatria: Number(p.idolatria ?? 0),
           grl: Number(p.grl ?? 0)
         }
@@ -3044,6 +3183,29 @@ app.get("/partidas/:idPartida/final", async (req, res) => {
 // ============================================================================
 //
 
+// Moneda de cada carrera según la nacionalidad de la leyenda:
+// - Inglaterra/Escocia: libras esterlinas.
+// - Europa (zona euro): euros.
+// - Resto: dólares.
+const MONEDAS_POR_SELECCION = {
+  "inglaterra": "GBP",
+  "escocia": "GBP",
+  "españa": "EUR", "espana": "EUR",
+  "italia": "EUR",
+  "alemania": "EUR",
+  "francia": "EUR",
+  "países bajos": "EUR", "paises bajos": "EUR",
+  "portugal": "EUR",
+  "bélgica": "EUR", "belgica": "EUR",
+  "austria": "EUR",
+  "suiza": "CHF"
+};
+
+function monedaPorSeleccion(nombreSeleccion) {
+  const nombre = String(nombreSeleccion ?? "").toLowerCase().trim();
+  return MONEDAS_POR_SELECCION[nombre] || "USD";
+}
+
 // Ranking de todas las carreras finalizadas. Cada fila es una carrera
 // (un participante de una partida terminada), ordenada por puntaje.
 app.get("/ranking", async (req, res) => {
@@ -3074,6 +3236,8 @@ app.get("/ranking", async (req, res) => {
           pp.grl,
           pp.grl_maxima,
           pp.puntaje_final,
+          pp.id_nacionalidad,
+          sel.nombre AS nacionalidad,
           p.id_partida,
           p.nombre_sala,
           p.fecha_fin,
@@ -3085,6 +3249,8 @@ app.get("/ranking", async (req, res) => {
           ON u.id_usuario = pp.id_usuario
        LEFT JOIN Club c
           ON c.id_club = pp.id_club
+       LEFT JOIN Seleccion sel
+          ON sel.id_seleccion = pp.id_nacionalidad
        WHERE p.estado = 'finalizada'
        ORDER BY pp.puntaje_final DESC, pp.grl_maxima DESC, pp.goles DESC
        LIMIT ?`,
@@ -3095,6 +3261,7 @@ app.get("/ranking", async (req, res) => {
       ...fila,
       puesto: indice + 1,
       puntaje: Number(fila.puntaje_final) || calcularPuntajeCarrera(fila),
+      moneda: monedaPorSeleccion(fila.nacionalidad),
       gano: Number(fila.gano) === 1
     }));
 
