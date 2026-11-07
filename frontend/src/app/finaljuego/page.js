@@ -19,11 +19,14 @@ const TIEMPOS = {
 };
 
 // Estadísticas que se revelan una por una, con su etiqueta y formato.
+// La plata usa la moneda de la carrera (se pasa en tiempo de render).
+const SIMBOLOS_MONEDA = { USD: "$", EUR: "€", GBP: "£", CHF: "CHF " };
+
 const ESTADISTICAS = [
-    { clave: "plata", etiqueta: "Plata", formato: (valor) => `$${formatearNumero(valor)}` },
-    { clave: "fama", etiqueta: "Fama", formato: (valor) => formatearNumero(valor) },
-    { clave: "idolatria", etiqueta: "Idolatría", formato: (valor) => formatearNumero(valor) },
-    { clave: "grl_maxima", etiqueta: "GRL máxima", formato: (valor) => formatearNumero(valor) }
+    { clave: "plata", etiqueta: "Plata", esPlata: true },
+    { clave: "fama", etiqueta: "Fama" },
+    { clave: "idolatria", etiqueta: "Idolatría" },
+    { clave: "grl_maxima", etiqueta: "GRL máxima" }
 ];
 
 // Estadísticas completas que se muestran al final, para los dos.
@@ -34,7 +37,7 @@ const DETALLE = [
     { clave: "grl", etiqueta: "GRL final" },
     { clave: "grl_maxima", etiqueta: "GRL máxima" },
     { clave: "fama", etiqueta: "Fama" },
-    { clave: "plata", etiqueta: "Plata", formato: (valor) => `$${formatearNumero(valor)}` },
+    { clave: "plata", etiqueta: "Plata", esPlata: true },
     { clave: "idolatria", etiqueta: "Idolatría" },
     { clave: "puntaje", etiqueta: "Puntaje" }
 ];
@@ -43,6 +46,10 @@ function formatearNumero(valor) {
     const numero = Number(valor);
     if (!Number.isFinite(numero)) return "0";
     return numero.toLocaleString("es-AR");
+}
+
+function formatearPlata(valor, moneda) {
+    return `${SIMBOLOS_MONEDA[moneda] || "$"}${formatearNumero(valor)}`;
 }
 
 export default function FinalJuegoPage() {
@@ -219,9 +226,11 @@ function ContenidoFinal() {
                 <ul className="final-stats">
                     {ESTADISTICAS.map((estadistica, indice) => {
                         const visible = paso >= primerPasoEstadistica + indice;
-                        const valor = estadistica.formato
-                            ? estadistica.formato(yo[estadistica.clave])
-                            : formatearNumero(yo[estadistica.clave]);
+                        const valor = estadistica.esPlata
+                            ? formatearPlata(yo[estadistica.clave], yo.moneda)
+                            : estadistica.formato
+                                ? estadistica.formato(yo[estadistica.clave])
+                                : formatearNumero(yo[estadistica.clave]);
 
                         return (
                             <li
@@ -288,9 +297,11 @@ function ContenidoFinal() {
                                 <dl>
                                     {DETALLE.map((dato, indice) => {
                                         const visible = paso >= primerPasoDetalle + indice;
-                                        const valor = dato.formato
-                                            ? dato.formato(jugador[dato.clave])
-                                            : formatearNumero(jugador[dato.clave]);
+                                        const valor = dato.esPlata
+                                            ? formatearPlata(jugador[dato.clave], jugador.moneda)
+                                            : dato.formato
+                                                ? dato.formato(jugador[dato.clave])
+                                                : formatearNumero(jugador[dato.clave]);
 
                                         return (
                                             <div

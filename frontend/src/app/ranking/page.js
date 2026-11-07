@@ -13,6 +13,12 @@ function formatearNumero(valor) {
     return numero.toLocaleString("es-AR");
 }
 
+const SIMBOLOS_MONEDA = { USD: "$", EUR: "€", GBP: "£", CHF: "CHF " };
+
+function formatearPlata(valor, moneda) {
+    return `${SIMBOLOS_MONEDA[moneda] || "$"}${formatearNumero(valor)}`;
+}
+
 function formatearFecha(valor) {
     if (!valor) return "—";
 
@@ -222,7 +228,7 @@ export default function RankingPage() {
                                         <td>{formatearNumero(fila.goles)}</td>
                                         <td>{formatearNumero(fila.asistencias)}</td>
                                         <td>{formatearNumero(fila.fama)}</td>
-                                        <td>${formatearNumero(fila.plata)}</td>
+                                        <td>{formatearPlata(fila.plata, fila.moneda)}</td>
                                         <td>{formatearNumero(fila.idolatria)}</td>
                                         <td>
                                             {fila.nombre_sala}
