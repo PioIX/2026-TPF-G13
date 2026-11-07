@@ -181,12 +181,6 @@ export default function InicioPage() {
 
                     <Button
                         type="button"
-                        text="Historial"
-                        onClick={() => router.push("/historial")}
-                    />
-
-                    <Button
-                        type="button"
                         text="Ranking"
                         onClick={() => router.push("/ranking")}
                     />
