@@ -9,7 +9,6 @@
     "dev": "nodemon index.js",
     "pio": "nodemon --env-file=pio.env index.js",
     "home": "nodemon --env-file=home.env index.js",
-    "test": "node scripts/test_eventos.js",
     "build": "pkg . --targets node18-win-x64 --output build/backend-tp2.exe"
   },
   "keywords": [
