@@ -1,5 +1,6 @@
 
 "use client";
+import { API_BASE } from "@/config";
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
@@ -62,7 +63,7 @@ export default function PartidaPage() {
         let socket;
         let cancelado = false;
 
-        fetch("http://localhost:4000/usuario", {
+        fetch(`${API_BASE}/usuario`, {
             credentials: "include"
         })
             .then((respuesta) => {
@@ -78,8 +79,7 @@ export default function PartidaPage() {
                 idUsuarioActual = Number(usuario.id_usuario);
                 setIdUsuario(idUsuarioActual);
 
-                return fetch(
-                    `http://localhost:4000/partidas/${idPartida}/jugadores`,
+                return fetch(`${API_BASE}/partidas/${idPartida}/jugadores`,
                     { credentials: "include" }
                 );
             })
@@ -98,7 +98,7 @@ export default function PartidaPage() {
                 setJugadores(datos);
                 setCargando(false);
 
-                socket = io("http://localhost:4000", {
+                socket = io(`${API_BASE}`, {
                     withCredentials: true
                 });
 
@@ -451,7 +451,7 @@ export default function PartidaPage() {
                 cambioClub={cambioClubPendiente}
                 clubActual={miJugador?.nombre_club}
                 onElegir={(idClub) => {
-                    fetch(`http://localhost:4000/partidas/${idPartida}/cambioClub`, {
+                    fetch(`${API_BASE}/partidas/${idPartida}/cambioClub`, {
                         method: "POST",
                         credentials: "include",
                         headers: { "Content-Type": "application/json" },

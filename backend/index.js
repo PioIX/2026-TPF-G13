@@ -6,7 +6,10 @@ const { Server } = require("socket.io");
 const app = express();
 const PORT = process.env.PORT || 4000;
 app.use(cors({
-  origin: ["http://localhost:3000", "http://localhost:3001"],
+  // Se acepta cualquier origen de la red local: permite jugar desde otra
+  // compu usando la URL de red de Next (http://<IP>:3001). La sesión igual
+  // exige login, así que esto no expone nada.
+  origin: true,
   credentials: true
 }));
 app.use(express.json());
@@ -24,7 +27,9 @@ const server = app.listen(PORT, () => {
 
 const io = new Server(server, {
   cors: {
-    origin: ["http://localhost:3000", "http://localhost:3001"],
+    // Igual que el HTTP: cualquier origen de la red local, con credenciales
+    // (la autenticación sigue siendo por sesión/cookie).
+    origin: true,
     methods: ["GET", "POST", "PUT", "DELETE"],
     credentials: true,
   },

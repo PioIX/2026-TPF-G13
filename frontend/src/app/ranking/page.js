@@ -4,8 +4,9 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Button from "@/components/Button";
 import "./ranking.css";
+import { API_BASE } from "@/config";
 
-const API_BASE = "http://localhost:4000";
+
 
 function formatearNumero(valor) {
     const numero = Number(valor);

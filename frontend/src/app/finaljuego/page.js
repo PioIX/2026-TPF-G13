@@ -4,8 +4,9 @@ import { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Button from "@/components/Button";
 import "./finaljuego.css";
+import { API_BASE } from "@/config";
 
-const API_BASE = "http://localhost:4000";
+
 
 // Ritmo del suspenso: cada paso espera lo indicado antes de mostrarse.
 // Se usan tiempos distintos para que la secuencia no se sienta mecánica.

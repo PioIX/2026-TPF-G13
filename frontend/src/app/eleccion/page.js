@@ -1,5 +1,6 @@
 
 "use client";
+import { API_BASE } from "@/config";
 
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -14,7 +15,7 @@ export default function EleccionPage() {
 
     const { socket, isConnected } = useSocket(
         { withCredentials: true },
-        "http://localhost:4000"
+        `${API_BASE}`
     );
 
     const [ligas, setLigas] = useState([]);
@@ -34,7 +35,7 @@ export default function EleccionPage() {
 
     useEffect(() => {
         Promise.all([
-            fetch("http://localhost:4000/ligas", {
+            fetch(`${API_BASE}/ligas`, {
                 credentials: "include"
             }).then((respuesta) => {
                 if (!respuesta.ok) {
@@ -43,7 +44,7 @@ export default function EleccionPage() {
                 return respuesta.json();
             }),
 
-            fetch("http://localhost:4000/clubes", {
+            fetch(`${API_BASE}/clubes`, {
                 credentials: "include"
             }).then((respuesta) => {
                 if (!respuesta.ok) {
@@ -52,7 +53,7 @@ export default function EleccionPage() {
                 return respuesta.json();
             }),
 
-            fetch("http://localhost:4000/selecciones", {
+            fetch(`${API_BASE}/selecciones`, {
                 credentials: "include"
             }).then((respuesta) => {
                 if (!respuesta.ok) {
@@ -82,7 +83,7 @@ export default function EleccionPage() {
             return;
         }
 
-        fetch(`http://localhost:4000/partidas/${idPartida}/eleccion`, {
+        fetch(`${API_BASE}/partidas/${idPartida}/eleccion`, {
             credentials: "include"
         })
             .then((respuesta) => {
@@ -213,7 +214,7 @@ export default function EleccionPage() {
 
         setGuardando(true);
 
-        fetch(`http://localhost:4000/partidas/${idPartida}/eleccion`, {
+        fetch(`${API_BASE}/partidas/${idPartida}/eleccion`, {
             method: "POST",
             headers: {
                 "Content-Type": "application/json"
@@ -240,8 +241,7 @@ export default function EleccionPage() {
                         : "Elección confirmada. Esperando al rival..."
                 );
 
-                return fetch(
-                    `http://localhost:4000/partidas/${idPartida}/eleccion`,
+                return fetch(`${API_BASE}/partidas/${idPartida}/eleccion`,
                     { credentials: "include" }
                 );
             })

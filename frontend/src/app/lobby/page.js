@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { io } from "socket.io-client";
 import { useRouter } from "next/navigation";
 import Button from "@/components/Button";
+import { API_BASE } from "@/config";
 
 export default function LobbyPage() {
     const searchParams = useSearchParams();
@@ -24,7 +25,7 @@ export default function LobbyPage() {
             return;
         }
 
-        fetch(`http://localhost:4000/partidas/${idPartida}/jugadores`, {
+        fetch(`${API_BASE}/partidas/${idPartida}/jugadores`, {
             method: "GET",
             credentials: "include"
         })
@@ -54,7 +55,7 @@ export default function LobbyPage() {
     useEffect(() => {
         if (!idPartida) return;
 
-        const socket = io("http://localhost:4000", {
+        const socket = io(`${API_BASE}`, {
             withCredentials: true
         });
 
@@ -99,7 +100,7 @@ export default function LobbyPage() {
 
     function marcarComoListo() {
         console.log("¡Se pulsó el botón Listo!", idPartida);
-        fetch(`http://localhost:4000/partidas/${idPartida}/listo`, {
+        fetch(`${API_BASE}/partidas/${idPartida}/listo`, {
             method: "POST",
             credentials: "include"
         })

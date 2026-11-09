@@ -1,5 +1,6 @@
 
 "use client";
+import { API_BASE } from "@/config";
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
@@ -20,7 +21,7 @@ export default function RegistroPage() {
 
         setError("");
 
-        fetch("http://localhost:4000/registro", {
+        fetch(`${API_BASE}/registro`, {
             method: "POST",
             headers: {
                 "Content-Type": "application/json"
