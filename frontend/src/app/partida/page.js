@@ -11,6 +11,8 @@ import PopupEvento from "@/components/PopupEvento";
 import PopupRendimiento from "@/components/PopupRendimiento";
 import PopupTitulo from "@/components/PopupTitulo";
 import PopupCambioClub from "@/components/PopupCambioClub";
+import PopupDueloTateti from "@/components/PopupDueloTateti";
+import PopupDueloReaccion from "@/components/PopupDueloReaccion";
 
 // Qué celdas de la grilla 3x3 del dado están encendidas para cada resultado.
 // Orden: fila por fila (1: arriba-izq ... 9: abajo-der).
@@ -44,6 +46,8 @@ export default function PartidaPage() {
     const [resultadoMostrado, setResultadoMostrado] = useState(null);
     const [cambioClubPendiente, setCambioClubPendiente] = useState(null);
     const [partidaTerminada, setPartidaTerminada] = useState(false);
+    const [dueloActivo, setDueloActivo] = useState(null); // minijuego por título
+    const [tituloDisputadoPendiente, setTituloDisputadoPendiente] = useState(null);
 
     const socketRef = useRef(null);
     const redireccionFinalRef = useRef(null);
@@ -207,6 +211,38 @@ export default function PartidaPage() {
 
                 socket.on("errorPartida", (error) => {
                     setMensaje(error.mensaje);
+                });
+
+                // Un título quedó en disputa: se juega un minijuego 1v1
+                // (tatetí) para definir si el jugador se queda con el título
+                // o el rival se lo roba.
+                socket.on("tituloDisputado", (datos) => {
+                    if (Number(datos.idPartida) !== Number(idPartida)) return;
+                    setTituloDisputadoPendiente(datos);
+                });
+
+                socket.on("dueloIniciado", (datos) => {
+                    // Aceptamos "tateti" o "reaccion" (cualquier juego conocido).
+                    if (datos.juego !== "tateti" && datos.juego !== "reaccion") return;
+                    setDueloActivo(datos);
+                });
+
+                socket.on("dueloResuelto", (datos) => {
+                    setDueloActivo(null);
+                    setTituloDisputadoPendiente(null);
+                    if (datos.tituloGanadoPorDueno) {
+                        setMensaje(
+                            Number(datos.idGanador) === idUsuarioActual
+                                ? "¡Defendiste tu título! Los puntos de campeón son tuyos."
+                                : "El rival defendió su título. Se te escapó la chance de robar los puntos."
+                        );
+                    } else {
+                        setMensaje(
+                            Number(datos.idGanador) === idUsuarioActual
+                                ? `¡Le robaste el título al rival! Sumaste ${datos.puntosRecompensa} puntos de campeón.`
+                                : "Te robaron el título en el duelo. Los puntos de campeón fueron para tu rival."
+                        );
+                    }
                 });
             })
             .catch((error) => {
@@ -397,7 +433,18 @@ export default function PartidaPage() {
 
             <PopupTitulo
                 titulos={mostrarTitulos ? titulosGanados : null}
-                onCerrar={() => setMostrarTitulos(false)}
+                onCerrar={() => {
+                    setMostrarTitulos(false);
+
+                    // Si algún título quedó en disputa, después de cerrar la
+                    // celebración se arranca el duelo (tatetí) contra el rival.
+                    if (tituloDisputadoPendiente) {
+                        socketRef.current?.emit("dueloJugar", {
+                            idPartida: Number(idPartida),
+                            idParticipante: tituloDisputadoPendiente.idParticipante
+                        });
+                    }
+                }}
             />
 
             <PopupCambioClub
@@ -423,6 +470,28 @@ export default function PartidaPage() {
                         });
                 }}
             />
+
+            {dueloActivo?.juego === "reaccion" ? (
+                <PopupDueloReaccion
+                    duelo={dueloActivo}
+                    idUsuario={idUsuario}
+                    socket={socketRef.current}
+                    onCerrar={() => {
+                        setDueloActivo(null);
+                        setTituloDisputadoPendiente(null);
+                    }}
+                />
+            ) : (
+                <PopupDueloTateti
+                    duelo={dueloActivo}
+                    idUsuario={idUsuario}
+                    socket={socketRef.current}
+                    onCerrar={() => {
+                        setDueloActivo(null);
+                        setTituloDisputadoPendiente(null);
+                    }}
+                />
+            )}
 
         </main>
     );
