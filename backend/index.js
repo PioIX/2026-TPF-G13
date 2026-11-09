@@ -1958,6 +1958,7 @@ io.on("connection", (socket) => {
             // y ya salió campeón de esa liga en esta carrera, no puede
             // haber dos campeones de la misma liga el mismo año.
             titulosColectivosRival,
+            jugadorRivalId: participanteRival?.id_participante ?? null,
             query
           });
 
@@ -2306,6 +2307,51 @@ io.on("connection", (socket) => {
 
       socket.emit("estadoPartidaActualizado", resultadoTurno);
 
+      // Si algún título de la temporada quedó en disputa (minijuego contra
+      // el rival), avisamos a la sala para que arranque el duelo.
+      // Si la partida ya terminó (temporada 20), el duelo no tiene lugar:
+      // el título se confirma tal cual.
+      const titulosEnDuelo = (resultadoTurno.rendimiento?.titulos || [])
+        .filter((t) => t.estado_duelo === "pendiente");
+
+      if (titulosEnDuelo.length > 0 && resultadoTurno.partidaFinalizada) {
+        const tituloPendiente = titulosEnDuelo[0];
+        const filasPendientes = await mysql.realizarQuery(
+          `SELECT tg.id_titulo_ganado
+             FROM TituloGanado tg
+            WHERE tg.id_participante = ?
+              AND tg.temporada = ?
+              AND tg.estado = 'pendiente_duelo'
+            ORDER BY tg.id_titulo_ganado DESC
+            LIMIT 1`,
+          [resultadoTurno.idParticipanteQueJugo, tituloPendiente.temporada]
+        );
+        if (filasPendientes?.length > 0) {
+          await mysql.realizarQuery(
+            `UPDATE TituloGanado
+                SET estado = 'ganado', puntos_obtenidos = ?
+              WHERE id_titulo_ganado = ?`,
+            [Number(tituloPendiente.puntos_campeon) || 0,
+             filasPendientes[0].id_titulo_ganado]
+          );
+          await mysql.realizarQuery(
+            `UPDATE ParticipantePartida
+                SET puntos_campeon = COALESCE(puntos_campeon, 0) + ?
+              WHERE id_participante = ?`,
+            [Number(tituloPendiente.puntos_campeon) || 0,
+             resultadoTurno.idParticipanteQueJugo]
+          );
+        }
+      }
+
+      if (titulosEnDuelo.length > 0 && !resultadoTurno.partidaFinalizada) {
+        io.to(`partida_${idPartida}`).emit("tituloDisputado", {
+          idPartida,
+          idParticipante: resultadoTurno.idParticipanteQueJugo,
+          titulo: titulosEnDuelo[0]
+        });
+      }
+
       // Si alguien llegó al final, avisamos a toda la sala para que
       // ambos clientes pasen a la pantalla de resultados.
       if (resultadoTurno.partidaFinalizada) {
@@ -2336,13 +2382,443 @@ io.on("connection", (socket) => {
   });
 
 
+  // ==========================================================================
+  // MINIJUEGO DE DUELO (tatetí) POR UN TÍTULO DISPUTADO
+  // ==========================================================================
+  // Cuando un jugador gana un título con estado 'pendiente_duelo', el rival
+  // puede robarlo ganándole un tatetí. Ambos reciben 'dueloIniciado';
+  // la jugada la valida SIEMPRE el servidor (el frontend solo dibuja).
+  //
+  // IMPORTANTE: `duelosActivos` está a nivel de MÓDULO (fuera de
+  // io.on("connection")): si estuviera dentro, cada socket tendría su
+  // propio mapa vacío y el rival nunca vería el duelo del otro.
+
+  function tableroTieneGanador(tablero) {
+    const lineas = [
+      [0,1,2],[3,4,5],[6,7,8],
+      [0,3,6],[1,4,7],[2,5,8],
+      [0,4,8],[2,4,6]
+    ];
+    for (const [a, b, c] of lineas) {
+      if (tablero[a] && tablero[a] === tablero[b] && tablero[a] === tablero[c]) {
+        return tablero[a];
+      }
+    }
+    return null;
+  }
+
+  function tableroLleno(tablero) {
+    return tablero.every((casilla) => casilla !== null);
+  }
+
+  function finalizarDuelo(duelo, idGanador, motivo) {
+    const { idPartida } = duelo;
+
+    // IMPORTANTE: NO se borra el duelo del mapa acá. El estado sigue vivo
+    // hasta que alguien manda "dueloConfirmar", que es quien aplica las
+    // consecuencias en la BD (puntos, anulación, etc.) y recién ahí lo
+    // elimina. Si se borrara acá, dueloConfirmar no encontraría el duelo
+    // y los puntos nunca se sumarían.
+    duelo.finalizado = true;
+
+    io.to(`partida_${idPartida}`).emit("dueloFinalizado", {
+      idDuelo: duelo.idDuelo,
+      idGanador,
+      motivo,
+      tablero: duelo.tablero
+    });
+  }
+
+  socket.on("dueloJugar", async (data) => {
+    try {
+      const usuario = socket.request.session?.usuario;
+      if (!usuario) {
+        socket.emit("errorPartida", { mensaje: "Tenés que iniciar sesión." });
+        return;
+      }
+
+      const idPartida = Number(data?.idPartida);
+      if (!Number.isInteger(idPartida) || idPartida <= 0) {
+        socket.emit("errorPartida", { mensaje: "El ID de la partida no es válido." });
+        return;
+      }
+
+      const idParticipante = Number(data?.idParticipante);
+      if (!Number.isInteger(idParticipante) || idParticipante <= 0) {
+        socket.emit("errorPartida", { mensaje: "El participante no es válido." });
+        return;
+      }
+
+      // Buscamos un título en estado pendiente de duelo para este participante.
+      const pendientes = await mysql.realizarQuery(
+        `SELECT tg.id_titulo_ganado, tg.id_participante, tg.temporada,
+                COALESCE(t.nombre, ti.nombre, tint.nombre) AS nombre_titulo,
+                COALESCE(t.puntos_campeon, ti.puntos_campeon, tint.puntos_campeon) AS puntos_campeon,
+                COALESCE(t.imagen, ti.imagen, tint.imagen) AS imagen_titulo,
+                CASE
+                  WHEN tg.id_titulo IS NOT NULL THEN 'colectivo'
+                  WHEN tg.id_titulo_individual IS NOT NULL THEN 'individual'
+                  ELSE 'internacional'
+                END AS tipo_titulo
+           FROM TituloGanado tg
+           LEFT JOIN Titulo t ON t.id_titulo = tg.id_titulo
+           LEFT JOIN TituloIndividual ti ON ti.id_titulo_individual = tg.id_titulo_individual
+           LEFT JOIN TituloInternacional tint ON tint.id_titulo_internacional = tg.id_titulo_internacional
+          WHERE tg.id_participante = ?
+            AND tg.estado = 'pendiente_duelo'
+          ORDER BY tg.id_titulo_ganado DESC
+          LIMIT 1`,
+        [idParticipante]
+      );
+
+      if (!pendientes || pendientes.length === 0) {
+        socket.emit("errorPartida", { mensaje: "No hay ningún título pendiente de duelo." });
+        return;
+      }
+
+      const tituloPendiente = pendientes[0];
+
+      // El jugador y su rival de la partida.
+      const participantes = await mysql.realizarQuery(
+        `SELECT pp.id_participante, pp.id_usuario, u.nombre_usuario
+           FROM ParticipantePartida pp
+           INNER JOIN Usuario u ON u.id_usuario = pp.id_usuario
+          WHERE pp.id_partida = ?`,
+        [idPartida]
+      );
+
+      const dueno = participantes.find(
+        (p) => Number(p.id_participante) === Number(tituloPendiente.id_participante)
+      );
+      const rival = participantes.find(
+        (p) => Number(p.id_participante) !== Number(tituloPendiente.id_participante)
+      );
+
+      if (!dueno || !rival) {
+        socket.emit("errorPartida", { mensaje: "No se encontraron los jugadores de la partida." });
+        return;
+      }
+
+      // Elige un minijuego al azar entre los disponibles.
+      const juego = MINIJUEGOS_DUELO[
+        Math.floor(Math.random() * MINIJUEGOS_DUELO.length)
+      ];
+
+      const idDuelo = `duelo_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
+
+      // Sorteo de quién empieza (50/50).
+      const idTurno = Math.random() < 0.5
+        ? Number(dueno.id_usuario)
+        : Number(rival.id_usuario);
+
+      const estadoDuelo = {
+        idDuelo,
+        idPartida,
+        juego,
+        titulo: tituloPendiente,
+        idDueno: Number(dueno.id_usuario),
+        idRival: Number(rival.id_usuario),
+        nombreDueno: dueno.nombre_usuario,
+        nombreRival: rival.nombre_usuario,
+        turno: idTurno,
+        tablero: Array(9).fill(null),
+        simboloDueno: "X",
+        simboloRival: "O"
+      };
+
+      duelosActivos.set(idDuelo, estadoDuelo);
+
+      // El minijuego de reacción arranca su primera ronda inmediatamente.
+      if (juego === "reaccion") {
+        iniciarRondaReaccion(estadoDuelo);
+      }
+
+      io.to(`partida_${idPartida}`).emit("dueloIniciado", {
+        idDuelo,
+        juego,
+        titulo: {
+          nombre: tituloPendiente.nombre_titulo,
+          tipo: tituloPendiente.tipo_titulo,
+          imagen: tituloPendiente.imagen_titulo,
+          puntos_campeon: tituloPendiente.puntos_campeon
+        },
+        idDueno: estadoDuelo.idDueno,
+        idRival: estadoDuelo.idRival,
+        nombreDueno: estadoDuelo.nombreDueno,
+        nombreRival: estadoDuelo.nombreRival,
+        turno: idTurno,
+        simboloDueno: "X",
+        simboloRival: "O"
+      });
+    } catch (error) {
+      console.error("Error al iniciar el duelo:", error);
+      socket.emit("errorPartida", { mensaje: "No se pudo iniciar el duelo." });
+    }
+  });
+
+  socket.on("dueloJugada", (data) => {
+    const duelo = duelosActivos.get(String(data?.idDuelo));
+    if (!duelo || duelo.finalizado) {
+      // Silencioso si ya terminó (puede llegar un click rezagado).
+      if (duelo?.finalizado) return;
+      socket.emit("errorPartida", { mensaje: "No hay ningún duelo activo con ese ID." });
+      return;
+    }
+
+    const usuario = socket.request.session?.usuario;
+    if (!usuario) {
+      socket.emit("errorPartida", { mensaje: "Tenés que iniciar sesión." });
+      return;
+    }
+
+    const idUsuario = Number(usuario.id_usuario);
+    if (Number(duelo.turno) !== idUsuario) {
+      socket.emit("errorPartida", { mensaje: "No es tu turno." });
+      return;
+    }
+
+    const casilla = Number(data?.casilla);
+    if (!Number.isInteger(casilla) || casilla < 0 || casilla > 8) {
+      socket.emit("errorPartida", { mensaje: "Casilla inválida." });
+      return;
+    }
+    if (duelo.tablero[casilla] !== null) {
+      socket.emit("errorPartida", { mensaje: "Esa casilla ya está ocupada." });
+      return;
+    }
+
+    // Colocamos la ficha del jugador actual.
+    const esDueno = idUsuario === duelo.idDueno;
+    duelo.tablero[casilla] = esDueno ? duelo.simboloDueno : duelo.simboloRival;
+
+    const ganadorTablero = tableroTieneGanador(duelo.tablero);
+
+    if (ganadorTablero) {
+      // Quien ganó el tatetí gana el duelo por el título.
+      const idGanadorDuelo =
+        ganadorTablero === duelo.simboloDueno ? duelo.idDueno : duelo.idRival;
+      finalizarDuelo(duelo, idGanadorDuelo, "tateti_ganado");
+      return;
+    }
+
+    if (tableroLleno(duelo.tablero)) {
+      // Empate: el título se define al azar (el dueño conserva una leve
+      // ventaja: gana con un 60% de probabilidad).
+      const idGanadorEmpate = Math.random() < 0.6
+        ? duelo.idDueno
+        : duelo.idRival;
+      finalizarDuelo(duelo, idGanadorEmpate, "empate");
+      return;
+    }
+
+    // Cambio de turno.
+    duelo.turno = esDueno ? duelo.idRival : duelo.idDueno;
+
+    io.to(`partida_${duelo.idPartida}`).emit("dueloActualizado", {
+      idDuelo: duelo.idDuelo,
+      tablero: duelo.tablero,
+      turno: duelo.turno,
+      ultimaJugada: casilla
+    });
+  });
+
+  // ==========================================================================
+  // MINIJUEGO DE REACCIÓN: el botón se ilumina en un momento aleatorio y
+  // el primero en clickear gana el duelo. Si alguien clickea ANTES de que
+  // se ilumine, pierde automáticamente (es un arranque, como en el 100m).
+  // ==========================================================================
+
+  function iniciarRondaReaccion(duelo) {
+    // Preparación de la ronda: retardo aleatorio entre 1.5 y 5 s.
+    duelo.reaccion = {
+      esperando: true,
+      listo: false,
+      temporizador: setTimeout(() => {
+        if (!duelosActivos.has(duelo.idDuelo) || duelo.finalizado) return;
+        duelo.reaccion.esperando = false;
+        duelo.reaccion.listo = true;
+        duelo.reaccion.momentoListo = Date.now();
+
+        io.to(`partida_${duelo.idPartida}`).emit("dueloReaccionListo", {
+          idDuelo: duelo.idDuelo
+        });
+
+        // Timeout de seguridad: si nadie clickea en 3 s, se define al azar
+        // (evita duelos colgados, por ejemplo si alguien cierra el navegador).
+        duelo.reaccion.timeout = setTimeout(() => {
+          if (!duelosActivos.has(duelo.idDuelo) || duelo.finalizado) return;
+          finalizarDuelo(duelo, Math.random() < 0.5 ? duelo.idDueno : duelo.idRival, "reaccion_timeout");
+        }, 3000);
+      }, 1500 + Math.random() * 3500)
+    };
+
+    io.to(`partida_${duelo.idPartida}`).emit("dueloReaccionPreparando", {
+      idDuelo: duelo.idDuelo
+    });
+  }
+
+  socket.on("dueloReaccionClick", (data) => {
+    const duelo = duelosActivos.get(String(data?.idDuelo));
+    if (!duelo || duelo.finalizado || duelo.juego !== "reaccion") return;
+
+    const usuario = socket.request.session?.usuario;
+    if (!usuario) return;
+    const idUsuario = Number(usuario.id_usuario);
+
+    const r = duelo.reaccion;
+    if (!r) return;
+
+    clearTimeout(r.timeout);
+
+    if (r.esperando) {
+      // Clickeó ANTES de que se encendiera la luz: salida nula, pierde.
+      const idGanador = idUsuario === duelo.idDueno ? duelo.idRival : duelo.idDueno;
+      finalizarDuelo(duelo, idGanador, "reaccion_quemado");
+      return;
+    }
+
+    if (r.listo) {
+      // Primer click luego de que se encendió: gana.
+      finalizarDuelo(duelo, idUsuario, "reaccion_ganado");
+    }
+  });
+
+  // Confirmación final del duelo: aplica las consecuencias en la BD.
+  // (separa la lógica de estado de la lógica de persistencia para que
+  // el duelo no bloquee el turno original mientras se juega).
+  socket.on("dueloConfirmar", async (data) => {
+    try {
+      const usuario = socket.request.session?.usuario;
+      if (!usuario) {
+        socket.emit("errorPartida", { mensaje: "Tenés que iniciar sesión." });
+        return;
+      }
+
+      const idDuelo = String(data?.idDuelo);
+      const duelo = duelosActivos.get(idDuelo);
+      if (!duelo) {
+        socket.emit("errorPartida", { mensaje: "No hay ningún duelo activo con ese ID." });
+        return;
+      }
+      duelosActivos.delete(idDuelo);
+
+      // Limpieza: si era un duelo de reacción, cancelamos cualquier
+      // temporizador pendiente para que no quede nada colgado.
+      if (duelo.reaccion) {
+        clearTimeout(duelo.reaccion.temporizador);
+        clearTimeout(duelo.reaccion.timeout);
+      }
+
+      const idGanador = Number(data?.idGanador);
+      const idPerdedor = idGanador === duelo.idDueno ? duelo.idRival : duelo.idDueno;
+      const idPartida = duelo.idPartida;
+
+      // Resolvemos los id_participante real de ganador y perdedor.
+      const participantes = await mysql.realizarQuery(
+        `SELECT id_participante, id_usuario
+           FROM ParticipantePartida
+          WHERE id_partida = ?`,
+        [idPartida]
+      );
+      const partGanador = participantes.find(
+        (p) => Number(p.id_usuario) === idGanador
+      );
+      const partPerdedor = participantes.find(
+        (p) => Number(p.id_usuario) === idPerdedor
+      );
+      if (!partGanador || !partPerdedor) {
+        socket.emit("errorPartida", { mensaje: "No se pudieron identificar los jugadores del duelo." });
+        return;
+      }
+
+      if (partGanador.id_participante === duelo.titulo.id_participante) {
+        // El dueño defiende el título: se confirma y recién ahí suma
+        // puntos de campeón, plata, fama e idolatría (como un título normal).
+        const titulo = await obtenerTituloGanado(
+          mysql.realizarQuery,
+          duelo.titulo.id_titulo_ganado
+        );
+        if (titulo) {
+          await mysql.realizarQuery(
+            `UPDATE TituloGanado
+                SET estado = 'ganado', puntos_obtenidos = ?
+              WHERE id_titulo_ganado = ?`,
+            [Number(titulo.puntos_campeon) || 0, duelo.titulo.id_titulo_ganado]
+          );
+
+          const prestigio = Number(titulo.prestigio) || 0;
+          const famaTitulo =
+            titulo.tipo === "individual" ? prestigio * 50 :
+            titulo.tipo === "internacional" ? prestigio * 30 :
+            prestigio * 20;
+          const idolatriaTitulo = titulo.tipo === "individual" ? prestigio * 10 : 0;
+          const premioDinero = (Number(titulo.puntos_campeon) || 0) * 100;
+
+          await mysql.realizarQuery(
+            `UPDATE ParticipantePartida
+                SET puntos_campeon = COALESCE(puntos_campeon, 0) + ?,
+                    plata = COALESCE(plata, 0) + ?,
+                    fama = GREATEST(0, fama + ?),
+                    idolatria = GREATEST(0, idolatria + ?)
+              WHERE id_participante = ?`,
+            [Number(titulo.puntos_campeon) || 0, premioDinero, famaTitulo,
+             idolatriaTitulo, partGanador.id_participante]
+          );
+        }
+
+        // Actualizamos el estado de la partida para ambos jugadores.
+        const jugadores = await obtenerJugadores(mysql.realizarQuery, idPartida);
+        io.to(`partida_${idPartida}`).emit("estadoPartidaActualizado", {
+          jugadores,
+          idUsuarioQueJugo: null
+        });
+      } else {
+        // El rival le ganó el duelo: el título se ANULA y el rival se queda
+        // con los puntos de campeón como recompensa por evitar el título.
+        await mysql.realizarQuery(
+          `UPDATE TituloGanado
+              SET estado = 'anulado', puntos_obtenidos = 0
+            WHERE id_titulo_ganado = ?`,
+          [duelo.titulo.id_titulo_ganado]
+        );
+
+        const puntosRobados = Number(duelo.titulo.puntos_campeon) || 0;
+        await mysql.realizarQuery(
+          `UPDATE ParticipantePartida
+              SET puntos_campeon = COALESCE(puntos_campeon, 0) + ?,
+                  fama = GREATEST(0, fama + ?)
+            WHERE id_participante = ?`,
+          [puntosRobados, Math.round(puntosRobados / 2), partGanador.id_participante]
+        );
+
+        const jugadores = await obtenerJugadores(mysql.realizarQuery, idPartida);
+        io.to(`partida_${idPartida}`).emit("estadoPartidaActualizado", { jugadores });
+      }
+
+      const puntosRecompensa = Number(duelo.titulo.puntos_campeon) || 0;
+
+      io.to(`partida_${idPartida}`).emit("dueloResuelto", {
+        idDuelo,
+        idGanador,
+        tituloGanadoPorDueno: partGanador.id_participante === duelo.titulo.id_participante,
+        puntosRecompensa
+      });
+    } catch (error) {
+      console.error("Error al confirmar el duelo:", error);
+      socket.emit("errorPartida", { mensaje: "No se pudo confirmar el duelo." });
+    }
+  });
+
   socket.on("disconnect", () => {
     console.log("Usuario desconectado");
   });
 });
 
 
-//
+// Mapa de duelos activos a nivel de MÓDULO: compartido entre todas las
+// conexiones (el duelo es 1v1: dos sockets distintos deben ver el mismo estado).
+const duelosActivos = new Map(); // idDuelo -> estado del duelo
+
 // ============================================================================
 // FIN DE PARTIDA Y RANKING
 // ============================================================================
@@ -2666,6 +3142,16 @@ function sortearTitulo(candidatos) {
  * Decide los títulos de la temporada y los registra en TituloGanado.
  * Devuelve [{ tipo, ...titulo }] (vacío si no ganó nada).
  */
+const PROBABILIDAD_DUELO = 0.5; // 50% de los títulos se juegan en duelo
+
+/**
+ * Minijuegos de duelo disponibles por título. Por ahora: Tatetí.
+ * La idea a futuro es sumar más (memorice, penales, apuntar, etc.);
+ * la arquitectura ya soporta varios: el frontend elige cómo renderizar
+ * según el campo `juego` del evento de duelo.
+ */
+const MINIJUEGOS_DUELO = ["tateti", "reaccion"];
+
 async function procesarTitulosTemporada({
   idParticipante,
   idClub,
@@ -2683,6 +3169,7 @@ async function procesarTitulosTemporada({
   continenteClub,        // confederación del CLUB (auditoría)
   pudoDisputarTemporada, // false si terminó la carrera / temporada perdida
   titulosColectivosRival, // títulos colectivos del rival (coherencia multi-jugador)
+  jugadorRivalId,         // id_participante del rival (para el minijuego de duelo)
   query
 }) {
   const titulosGanados = [];
@@ -2708,7 +3195,10 @@ async function procesarTitulosTemporada({
     return titulosGanados;
   }
 
-  const registrarTitulo = async (columna, idTitulo, tipo) => {
+  // Los duelos solo tienen sentido si hay un rival en la partida.
+  const hayRival = Boolean(titulosColectivosRival && jugadorRivalId != null);
+
+  const registrarTitulo = async (columna, idTitulo, tipo, forzarDuelo = false) => {
     // Un mismo título no se gana dos veces en la misma temporada/edición.
     const [existentes] = await query(
       `SELECT COUNT(*) AS n FROM TituloGanado
@@ -2716,6 +3206,35 @@ async function procesarTitulosTemporada({
       [idParticipante, temporada, idTitulo]
     );
     if (Number(existentes?.n) > 0) return null;
+
+    // --- MINIJUEGO DE DUELO: el título se disputa en vez de ganarlo directo ---
+    // Con cierta frecuencia, en lugar de quedarte el título en el acto,
+    // hay que defenderlo en un minijuego 1v1 contra el rival. Si perdés
+    // el duelo, el título se anula y el rival se queda con los puntos
+    // de campeón como recompensa por evitarlo.
+    const enDuelo = forzarDuelo && Math.random() < PROBABILIDAD_DUELO;
+
+    if (enDuelo) {
+      // Se registra igual en TituloGanado pero en estado pendiente:
+      // no suma puntos ni plata todavia. Si el jugador gana el duelo,
+      // se activa (pasa a 'ganado' y recién ahí suma todo).
+      const pendiente = await query(
+        `INSERT INTO TituloGanado
+                    (id_participante, ${columna}, temporada, estado)
+                 VALUES (?, ?, ?, 'pendiente_duelo')`,
+        [idParticipante, idTitulo, temporada]
+      );
+
+      const titulo = await obtenerTituloGanado(query, pendiente.insertId);
+      if (titulo) {
+        titulosGanados.push({
+          tipo,
+          estado_duelo: "pendiente",
+          ...titulo
+        });
+      }
+      return titulo;
+    }
 
     const resultado = await query(
       `INSERT INTO TituloGanado
@@ -2847,7 +3366,9 @@ async function procesarTitulosTemporada({
     );
 
     if (ganadorColectivo) {
-      await registrarTitulo("id_titulo", ganadorColectivo, "colectivo");
+      await registrarTitulo(
+        "id_titulo", ganadorColectivo, "colectivo", hayRival
+      );
     }
     }
   }
@@ -2914,7 +3435,8 @@ async function procesarTitulosTemporada({
       await registrarTitulo(
         "id_titulo_internacional",
         ganadorInternacional,
-        "internacional"
+        "internacional",
+        hayRival
       );
     }
       }
@@ -2993,7 +3515,8 @@ async function procesarTitulosTemporada({
     await registrarTitulo(
       "id_titulo_individual",
       ganadorIndividual,
-      "individual"
+      "individual",
+      hayRival
     );
   }
   }
