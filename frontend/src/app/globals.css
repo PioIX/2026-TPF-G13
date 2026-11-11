@@ -959,6 +959,24 @@ main.game-page.game-page--partida > .panel-jugador > h3 {
 
 main.game-page.game-page--partida > .panel-jugador > h2 { margin-bottom: 4px; }
 main.game-page.game-page--partida > .panel-jugador > h3 { margin-bottom: 12px; }
+
+/* Etiqueta J1/J2 junto al nombre, para identificar la ficha en el tablero. */
+.panel-jugador-numero {
+  display: inline-block;
+  vertical-align: middle;
+  margin-right: 8px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--color-accent-bright);
+  color: #0b0f14;
+  font-size: 0.65em;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+
+.panel-jugador:last-of-type .panel-jugador-numero {
+  background: var(--color-rose-bright);
+}
 main.game-page.game-page--partida > .panel-jugador > p {
   min-width: 0;
   margin: 0;

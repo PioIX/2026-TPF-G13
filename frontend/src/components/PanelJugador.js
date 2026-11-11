@@ -14,7 +14,12 @@ export default function PanelJugador(props) {
         <section className="panel-jugador">
             <h2>{props.titulo}</h2>
 
-            <h3>{jugador.nombre_leyenda || jugador.nombre_usuario}</h3>
+            <h3>
+                {props.numeroJugador && (
+                    <span className="panel-jugador-numero">{props.numeroJugador}</span>
+                )}{' '}
+                {jugador.nombre_leyenda || jugador.nombre_usuario}
+            </h3>
 
             <dl className="panel-jugador-datos">
                 {[

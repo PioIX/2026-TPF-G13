@@ -298,6 +298,19 @@ export default function PartidaPage() {
         });
     }
 
+    // El Jugador 1 es quien creó la partida (el id_participante más bajo);
+    // sirve para identificar quién es quién en el tablero.
+    const participantesOrdenados = [...jugadores].sort(
+        (a, b) => Number(a.id_participante) - Number(b.id_participante)
+    );
+
+    const idParticipanteJ1 = participantesOrdenados[0]?.id_participante;
+
+    const numeroJugador = (jugador) =>
+        jugador && Number(jugador.id_participante) === Number(idParticipanteJ1)
+            ? "J1"
+            : "J2";
+
     const miJugador = jugadores.find(
         (jugador) => Number(jugador.id_usuario) === idUsuario
     );
@@ -334,11 +347,13 @@ export default function PartidaPage() {
                 <PanelJugador
                     titulo="Tu futbolista"
                     jugador={miJugador}
+                    numeroJugador={numeroJugador(miJugador)}
                 />
 
                 <PanelJugador
                     titulo="Rival"
                     jugador={rival}
+                    numeroJugador={numeroJugador(rival)}
                 />
             </div>
 
