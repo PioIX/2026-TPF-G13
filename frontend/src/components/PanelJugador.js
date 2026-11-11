@@ -14,10 +14,13 @@ export default function PanelJugador(props) {
         <section className="panel-jugador">
             <h2>{props.titulo}</h2>
 
+            {/* El nombre del JUGADOR (el que eligió al armar la carrera)
+                manda siempre; el nombre de usuario queda como dato aparte. */}
             <h3>{jugador.nombre_leyenda || jugador.nombre_usuario}</h3>
 
             <dl className="panel-jugador-datos">
                 {[
+                    ["Jugador", jugador.nombre_leyenda || "--"],
                     ["Usuario", jugador.nombre_usuario ?? "--"],
                     ["Club", jugador.nombre_club ?? "Sin club"],
                     ["Liga", jugador.liga ?? "Sin liga"],
