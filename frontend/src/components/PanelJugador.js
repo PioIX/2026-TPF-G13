@@ -14,6 +14,12 @@ export default function PanelJugador(props) {
         <section className="panel-jugador">
             <h2>{props.titulo}</h2>
 
+            <h3>
+                {props.numeroJugador && (
+                    <span className="panel-jugador-numero">{props.numeroJugador}</span>
+                )}{' '}
+                {jugador.nombre_leyenda || jugador.nombre_usuario}
+            </h3>
             {/* El nombre del JUGADOR (el que eligió al armar la carrera)
                 manda siempre; el nombre de usuario queda como dato aparte. */}
             <h3>{jugador.nombre_leyenda || jugador.nombre_usuario}</h3>
