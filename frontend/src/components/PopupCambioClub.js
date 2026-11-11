@@ -12,7 +12,7 @@ export default function PopupCambioClub({ cambioClub, clubActual, onElegir }) {
     return (
         <div className="popup-evento-overlay">
             <section
-                className="popup-evento"
+                className="popup-evento popup-evento--cambio-club"
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby="popup-cambio-club-titulo"

@@ -1047,6 +1047,7 @@ app.get("/partidas/:idPartida/jugadores", async (req, res) => {
               pp.listo,
               pp.posicion_actual,
               pp.turno,
+              pp.nombre_leyenda,
               u.nombre_usuario,
               c.nombre AS nombre_club,
               c.liga,
@@ -1235,6 +1236,7 @@ io.on("connection", (socket) => {
            pp.listo,
            pp.posicion_actual,
            pp.turno,
+           pp.nombre_leyenda,
            u.nombre_usuario
          FROM ParticipantePartida pp
          INNER JOIN Usuario u
@@ -1770,22 +1772,79 @@ io.on("connection", (socket) => {
 
           cambioGRL = Math.round(cambioGRL * 10) / 10;
 
-          // Nota de temporada: se basa en el rendimiento real
-          // (goles y asistencias cada 90 minutos) más un factor de forma.
-          const notaRendimiento = Math.min(
-            10,
-            Math.max(
-              3.5,
-              Number(
-                (
-                  5.5 +
-                  (golesNuevos / partidosJugadosTemporada) * 8 +
-                  (asistenciasNuevas / partidosJugadosTemporada) * 5 +
-                  (Math.random() - 0.5)
-                ).toFixed(1)
-              )
-            )
+          // ------------------------------------------------------------------
+          // NOTA DE LA TEMPORADA (coherente con partidos, goles, asistencias
+          // y lesiones).
+          //
+          // 1) Aporte ofensivo por partido: se compara contra lo que se espera
+          //    de un jugador de ese GRL y edad (golesEsperadosPorPartido y
+          //    asistenciasEsperadasPorPartido). Así un 7 no depende de tener
+          //    suerte de crack: rinde el que rinde MÁS de lo esperable.
+          //    La escala es independiente del total de partidos.
+          // 2) Disponibilidad: no jugar la temporada completa tiene costo.
+          //    Con pocos partidos (lesión grave, fin de carrera, recuperación
+          //    a mitad de año) la nota no puede ser alta aunque el jugador
+          //    haya metido un gol en esos pocos partidos: no hay temporada.
+          // 3) Forma: variación chica y acotada (nunca cambia el sentido).
+          // ------------------------------------------------------------------
+          const factorDisponibilidad = partidosJugadosTemporada /
+            PARTIDOS_POR_TEMPORADA;
+
+          const golesEsperadosTemporada = Math.max(
+            0.01,
+            partidosJugadosTemporada * golesEsperadosPorPartido
           );
+          const asistenciasEsperadasTemporada = Math.max(
+            0.01,
+            partidosJugadosTemporada * asistenciasEsperadasPorPartido
+          );
+
+          // +1.0 = doblar lo esperado, -1.0 = no aportar nada.
+          const desvioGoles = Math.max(
+            -1,
+            Math.min(1, (golesNuevos - golesEsperadosTemporada) /
+              golesEsperadosTemporada)
+          );
+          const desvioAsistencias = Math.max(
+            -1,
+            Math.min(1, (asistenciasNuevas - asistenciasEsperadasTemporada) /
+              asistenciasEsperadasTemporada)
+          );
+
+          // Rendimiento puro: arranca en 5.0 (temporada discreta).
+          // Un 10 exige superar claramente lo esperado en goles Y asistir.
+          const rendimientoDeportivo =
+            5.0 + desvioGoles * 3.0 + desvioAsistencias * 1.5;
+
+          // Un jugador que no disputó la temporada no puede sacarse nota:
+          // fin de carrera o lesión que lo dejó sin partidos.
+          const sinTemporada =
+            esEventoFinCarrera || partidosJugadosTemporada <= 0;
+
+          // La nota se ajusta hacia abajo según los partidos disputados: con
+          // media temporada el techo baja ~1 punto, con un tercio ~2, y con
+          // casi nada de rodaje la nota queda de regular para abajo.
+          const castigoDisponibilidad =
+            2.5 * (1 - factorDisponibilidad) * (1 - factorDisponibilidad);
+
+          // Forma: ±0.4 como mucho (antes ±0.5, que podía mover demasiado).
+          const forma = (Math.random() - 0.5) * 0.8;
+
+          const notaRendimiento = sinTemporada
+            ? 3.0
+            : Math.min(
+                10,
+                Math.max(
+                  2.0,
+                  Number(
+                    (
+                      rendimientoDeportivo -
+                      castigoDisponibilidad +
+                      forma
+                    ).toFixed(1)
+                  )
+                )
+              );
 
           // Actualizamos posición, estadísticas y turnos pendientes.
 
@@ -2255,6 +2314,10 @@ io.on("connection", (socket) => {
               goles: golesNuevos,
               asistencias: asistenciasNuevas,
               partidos: partidosJugadosTemporada,
+              partidosTemporadaCompleta: PARTIDOS_POR_TEMPORADA,
+              // Con pocos partidos (lesión, fin de carrera) la nota ya
+              // viene castigada: el popup lo explica al jugador.
+              sinTemporada,
               nota: notaRendimiento,
               titulos: titulosGanados
             },
