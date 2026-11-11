@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import "./inicio.css";
 import Button from "@/components/Button";
 import Input from "@/components/Input";
+import { API_URL } from "@/config";
 
 export default function InicioPage() {
 
@@ -19,7 +20,7 @@ export default function InicioPage() {
     useEffect(() => {
         function obtenerUsuario() {
 
-            fetch("http://localhost:4000/usuario", {
+            fetch(`${API_URL}/usuario`, {
                 method: "GET",
                 credentials: "include"
             })
@@ -51,7 +52,7 @@ export default function InicioPage() {
 
     function cerrarSesion() {
 
-        fetch("http://localhost:4000/logout", {
+        fetch(`${API_URL}/logout`, {
             method: "POST",
             credentials: "include"
         })
@@ -74,7 +75,7 @@ export default function InicioPage() {
 
         setMensajeSala("");
 
-        fetch("http://localhost:4000/salas/entrar", {
+        fetch(`${API_URL}/salas/entrar`, {
             method: "POST",
             headers: {
                 "Content-Type": "application/json"

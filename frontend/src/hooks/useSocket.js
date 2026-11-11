@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import io from 'socket.io-client';
+import { SOCKET_URL } from '@/config';
 
-const useSocket = (options = { withCredentials: false }, serverUrl = "ws://localhost:4000/") => { //ACÁ PONER LA IP DEL BACK
+const useSocket = (options = { withCredentials: false }, serverUrl = SOCKET_URL) => {
   const [socket, setSocket] = useState(null);
   const [isConnected, setIsConnected] = useState(false);
 

@@ -5,7 +5,9 @@ import { useRouter, useSearchParams } from "next/navigation";
 import Button from "@/components/Button";
 import "./finaljuego.css";
 
-const API_BASE = "http://localhost:4000";
+import { API_URL } from "@/config";
+
+const API_BASE = API_URL;
 
 // Ritmo del suspenso: cada paso espera lo indicado antes de mostrarse.
 // Se usan tiempos distintos para que la secuencia no se sienta mecánica.

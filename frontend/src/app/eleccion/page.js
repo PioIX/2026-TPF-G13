@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useSocket } from "@/hooks/useSocket";
 import Button from "@/components/Button";
 import Input from "@/components/Input";
+import { API_URL } from "@/config";
 
 export default function EleccionPage() {
     const router = useRouter();
@@ -14,7 +15,7 @@ export default function EleccionPage() {
 
     const { socket, isConnected } = useSocket(
         { withCredentials: true },
-        "http://localhost:4000"
+        API_URL
     );
 
     const [ligas, setLigas] = useState([]);
@@ -34,7 +35,7 @@ export default function EleccionPage() {
 
     useEffect(() => {
         Promise.all([
-            fetch("http://localhost:4000/ligas", {
+            fetch(`${API_URL}/ligas`, {
                 credentials: "include"
             }).then((respuesta) => {
                 if (!respuesta.ok) {
@@ -43,7 +44,7 @@ export default function EleccionPage() {
                 return respuesta.json();
             }),
 
-            fetch("http://localhost:4000/clubes", {
+            fetch(`${API_URL}/clubes`, {
                 credentials: "include"
             }).then((respuesta) => {
                 if (!respuesta.ok) {
@@ -52,7 +53,7 @@ export default function EleccionPage() {
                 return respuesta.json();
             }),
 
-            fetch("http://localhost:4000/selecciones", {
+            fetch(`${API_URL}/selecciones`, {
                 credentials: "include"
             }).then((respuesta) => {
                 if (!respuesta.ok) {
@@ -82,7 +83,7 @@ export default function EleccionPage() {
             return;
         }
 
-        fetch(`http://localhost:4000/partidas/${idPartida}/eleccion`, {
+        fetch(`${API_URL}/partidas/${idPartida}/eleccion`, {
             credentials: "include"
         })
             .then((respuesta) => {
@@ -213,7 +214,7 @@ export default function EleccionPage() {
 
         setGuardando(true);
 
-        fetch(`http://localhost:4000/partidas/${idPartida}/eleccion`, {
+        fetch(`${API_URL}/partidas/${idPartida}/eleccion`, {
             method: "POST",
             headers: {
                 "Content-Type": "application/json"
@@ -241,7 +242,7 @@ export default function EleccionPage() {
                 );
 
                 return fetch(
-                    `http://localhost:4000/partidas/${idPartida}/eleccion`,
+                    `${API_URL}/partidas/${idPartida}/eleccion`,
                     { credentials: "include" }
                 );
             })

@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import Button from "@/components/Button";
 import Input from "@/components/Input";
 import "./registro.css";
+import { API_URL } from "@/config";
 
 export default function RegistroPage() {
     const router = useRouter();
@@ -20,7 +21,7 @@ export default function RegistroPage() {
 
         setError("");
 
-        fetch("http://localhost:4000/registro", {
+        fetch(`${API_URL}/registro`, {
             method: "POST",
             headers: {
                 "Content-Type": "application/json"
