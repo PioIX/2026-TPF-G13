@@ -17,22 +17,22 @@ export default function PanelJugador(props) {
             {/* El nombre del JUGADOR (el que eligió al armar la carrera)
                 manda siempre; el nombre de usuario queda como dato aparte. */}
             <h3>
+                {jugador.nombre_leyenda || jugador.nombre_usuario}
+                {" "}
                 {props.numeroJugador && (
                     <span className="panel-jugador-numero">{props.numeroJugador}</span>
-                )}{' '}
-                {jugador.nombre_leyenda || jugador.nombre_usuario}
+                )}
             </h3>
 
             <dl className="panel-jugador-datos">
                 {[
                     ["Jugador", jugador.nombre_leyenda || "--"],
-                    ["Usuario", jugador.nombre_usuario ?? "--"],
+                    ["Usuario", jugador.nombre_usuario || "--"],
                     ["Club", jugador.nombre_club ?? "Sin club"],
                     ["Liga", jugador.liga ?? "Sin liga"],
                     ["Selección", jugador.nombre_seleccion ?? "Sin selección"],
                     ["Edad", jugador.edad ?? "--"],
                     ["GRL", jugador.grl ?? "--"],
-                    ["Posición", jugador.posicion_actual ?? 1],
                     ["Fama", jugador.fama ?? 0],
                     ["Plata", jugador.plata ?? 0],
                     ["Idolatría", jugador.idolatria ?? 0],
@@ -40,8 +40,7 @@ export default function PanelJugador(props) {
                     ["Asistencias", jugador.asistencias ?? 0],
                     ["Partidos", jugador.partidos_jugados ?? 0],
                     ["Títulos ganados", jugador.cantidad_titulos ?? 0],
-                    ["Puntos de campeón", jugador.puntos_campeon ?? 0],
-                    ["Último título", jugador.nombre_titulo ?? "Ninguno"]
+                    ["Puntos de campeón", jugador.puntos_campeon ?? 0]
                 ].map(([etiqueta, valor]) => (
                     <div key={etiqueta}>
                         <dt>{etiqueta}</dt>
