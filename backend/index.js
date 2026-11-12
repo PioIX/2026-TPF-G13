@@ -1059,7 +1059,7 @@ app.get("/partidas/:idPartida/jugadores", async (req, res) => {
               u.nombre_usuario,
               c.nombre AS nombre_club,
               c.liga,
-              t.nombre AS nombre_titulo
+              COALESCE(t.nombre, ti.nombre, tint.nombre) AS nombre_titulo
         FROM ParticipantePartida pp
         INNER JOIN Usuario u
           ON pp.id_usuario = u.id_usuario
@@ -1067,6 +1067,10 @@ app.get("/partidas/:idPartida/jugadores", async (req, res) => {
           ON pp.id_club = c.id_club
         LEFT JOIN Titulo t
           ON pp.id_titulo = t.id_titulo
+        LEFT JOIN TituloIndividual ti
+          ON pp.id_titulo_individual = ti.id_titulo_individual
+        LEFT JOIN TituloInternacional tint
+          ON pp.id_titulo_internacional = tint.id_titulo_internacional
         LEFT JOIN Seleccion sel
           ON pp.id_seleccion = sel.id_seleccion
         WHERE pp.id_partida = ${idPartida}`);
@@ -1819,10 +1823,19 @@ io.on("connection", (socket) => {
               asistenciasEsperadasTemporada)
           );
 
+          // Base por nivel: un crack (GRL alto) arranca más arriba que uno
+          // mediocre, incluso cuando rinde justo "lo esperado". La nota pasa
+          // a ser un intermedio entre el nivel del jugador y su rendimiento
+          // real de la temporada, en vez de depender solo de este último.
+          const basePorNivel = Math.max(
+            -1.5,
+            Math.min(2.0, (grlJugador - 70) * 0.06)
+          );
+
           // Rendimiento puro: arranca en 5.0 (temporada discreta).
           // Un 10 exige superar claramente lo esperado en goles Y asistir.
           const rendimientoDeportivo =
-            5.0 + desvioGoles * 3.0 + desvioAsistencias * 1.5;
+            5.0 + basePorNivel + desvioGoles * 3.0 + desvioAsistencias * 1.5;
 
           // Un jugador que no disputó la temporada no puede sacarse nota:
           // fin de carrera o lesión que lo dejó sin partidos.
@@ -1833,7 +1846,7 @@ io.on("connection", (socket) => {
           // media temporada el techo baja ~1 punto, con un tercio ~2, y con
           // casi nada de rodaje la nota queda de regular para abajo.
           const castigoDisponibilidad =
-            2.5 * (1 - factorDisponibilidad) * (1 - factorDisponibilidad);
+            2.0 * (1 - factorDisponibilidad) * (1 - factorDisponibilidad);
 
           // Forma: ±0.4 como mucho (antes ±0.5, que podía mover demasiado).
           const forma = (Math.random() - 0.5) * 0.8;
@@ -1843,7 +1856,7 @@ io.on("connection", (socket) => {
             : Math.min(
                 10,
                 Math.max(
-                  2.0,
+                3.0,
                   Number(
                     (
                       rendimientoDeportivo -
@@ -3111,7 +3124,7 @@ async function obtenerJugadores(query, idPartida) {
             u.nombre_usuario,
             c.nombre AS nombre_club,
             c.liga,
-            t.nombre AS nombre_titulo,
+            COALESCE(t.nombre, ti.nombre, tint.nombre) AS nombre_titulo,
             t.imagen AS imagen_titulo,
             t.prestigio AS prestigio_titulo,
             ti.nombre AS nombre_titulo_individual,
