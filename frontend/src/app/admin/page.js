@@ -461,6 +461,17 @@ function SeccionUsuarios({ usuarioActual }) {
 
 const CATEGORIAS_EVENTO = ["positivo", "negativo", "aleatorio", "especial"];
 
+// Al abrir el formulario de edición/creación, la página se desplaza con un
+// movimiento suave hasta el formulario, para no tener que buscarlo a mano.
+// El timeout espera al render del formulario (aparece al cambiar el estado).
+function desplazarAFormularioEdicion() {
+    setTimeout(() => {
+        document
+            .getElementById("admin-formulario-edicion")
+            ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 50);
+}
+
 function SeccionEventos() {
     const [eventos, setEventos] = useState([]);
     const [cargando, setCargando] = useState(true);
@@ -525,6 +536,7 @@ function SeccionEventos() {
         setFormulario(formularioVacio());
         setError("");
         setMensaje("");
+        desplazarAFormularioEdicion();
     }
 
     function abrirEdicion(evento) {
@@ -543,6 +555,7 @@ function SeccionEventos() {
         });
         setError("");
         setMensaje("");
+        desplazarAFormularioEdicion();
     }
 
     function cancelarFormulario() {
@@ -660,7 +673,7 @@ function SeccionEventos() {
             {error && <p className="admin-error">{error}</p>}
 
             {mostrandoFormulario && (
-                <form className="admin-formulario" onSubmit={enviarFormulario}>
+                <form id="admin-formulario-edicion" className="admin-formulario" onSubmit={enviarFormulario}>
                     <h3 className="admin-formulario-titulo">
                         {editandoId ? "Editar evento" : "Crear evento"}
                     </h3>
@@ -1251,6 +1264,7 @@ function SeccionTitulos({ config }) {
         setEditandoId(titulo[config.columnaId]);
         setError("");
         setMensaje("");
+        desplazarAFormularioEdicion();
     }
 
     function cancelarEdicion() {
@@ -1341,7 +1355,7 @@ function SeccionTitulos({ config }) {
             {error && <p className="admin-error">{error}</p>}
 
             {editandoId !== null && formulario && (
-                <form className="admin-formulario" onSubmit={guardarEdicion}>
+                <form id="admin-formulario-edicion" className="admin-formulario" onSubmit={guardarEdicion}>
                     <h3 className="admin-formulario-titulo">
                         Editar título #{editandoId}
                     </h3>
@@ -1546,6 +1560,7 @@ function SeccionClubes() {
         setEditandoId(club.id_club);
         setError("");
         setMensaje("");
+        desplazarAFormularioEdicion();
     }
 
     function cancelarEdicion() {
@@ -1636,7 +1651,7 @@ function SeccionClubes() {
             {error && <p className="admin-error">{error}</p>}
 
             {editandoId !== null && formulario && (
-                <form className="admin-formulario" onSubmit={guardarEdicion}>
+                <form id="admin-formulario-edicion" className="admin-formulario" onSubmit={guardarEdicion}>
                     <h3 className="admin-formulario-titulo">
                         Editar club #{editandoId}
                     </h3>
@@ -1825,6 +1840,7 @@ function SeccionLigas() {
     function iniciarEdicion(liga) {
         setEditandoNombre(liga.liga);
         setNuevoNombre(liga.liga);
+        desplazarAFormularioEdicion();
         setError("");
         setMensaje("");
     }
@@ -1914,7 +1930,7 @@ function SeccionLigas() {
             {error && <p className="admin-error">{error}</p>}
 
             {editandoNombre !== null && (
-                <form className="admin-formulario" onSubmit={guardarEdicion}>
+                <form id="admin-formulario-edicion" className="admin-formulario" onSubmit={guardarEdicion}>
                     <h3 className="admin-formulario-titulo">
                         Renombrar liga: {editandoNombre}
                     </h3>
