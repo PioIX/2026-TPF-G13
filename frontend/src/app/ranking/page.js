@@ -5,7 +5,9 @@ import { useRouter } from "next/navigation";
 import Button from "@/components/Button";
 import "./ranking.css";
 
-const API_BASE = "http://localhost:4000";
+import { API_URL } from "@/config";
+
+const API_BASE = API_URL;
 
 function formatearNumero(valor) {
     const numero = Number(valor);

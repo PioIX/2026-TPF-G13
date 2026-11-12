@@ -4,7 +4,9 @@ import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import "./admin.css";
 
-const API_BASE = "http://localhost:4000";
+import { API_URL } from "@/config";
+
+const API_BASE = API_URL;
 
 const SECCIONES = [
     { id: "usuarios", etiqueta: "Usuarios" },

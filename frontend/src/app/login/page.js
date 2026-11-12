@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Button from "@/components/Button";
 import Input from "@/components/Input";
 import "./login.css";
+import { API_URL } from "@/config";
 
 export default function LoginPage() {
     const router = useRouter();
@@ -17,7 +18,7 @@ export default function LoginPage() {
         event.preventDefault();
         setError("");
 
-        fetch("http://localhost:4000/login", {
+        fetch(`${API_URL}/login`, {
             method: "POST",
             headers: {
                 "Content-Type": "application/json"

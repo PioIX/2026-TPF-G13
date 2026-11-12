@@ -13,6 +13,7 @@ import PopupTitulo from "@/components/PopupTitulo";
 import PopupCambioClub from "@/components/PopupCambioClub";
 import PopupDueloTateti from "@/components/PopupDueloTateti";
 import PopupDueloReaccion from "@/components/PopupDueloReaccion";
+import { API_URL } from "@/config";
 
 // Qué celdas de la grilla 3x3 del dado están encendidas para cada resultado.
 // Orden: fila por fila (1: arriba-izq ... 9: abajo-der).
@@ -62,7 +63,7 @@ export default function PartidaPage() {
         let socket;
         let cancelado = false;
 
-        fetch("http://localhost:4000/usuario", {
+        fetch(`${API_URL}/usuario`, {
             credentials: "include"
         })
             .then((respuesta) => {
@@ -79,7 +80,7 @@ export default function PartidaPage() {
                 setIdUsuario(idUsuarioActual);
 
                 return fetch(
-                    `http://localhost:4000/partidas/${idPartida}/jugadores`,
+                    `${API_URL}/partidas/${idPartida}/jugadores`,
                     { credentials: "include" }
                 );
             })
@@ -98,7 +99,7 @@ export default function PartidaPage() {
                 setJugadores(datos);
                 setCargando(false);
 
-                socket = io("http://localhost:4000", {
+                socket = io(API_URL, {
                     withCredentials: true
                 });
 
@@ -466,7 +467,7 @@ export default function PartidaPage() {
                 cambioClub={cambioClubPendiente}
                 clubActual={miJugador?.nombre_club}
                 onElegir={(idClub) => {
-                    fetch(`http://localhost:4000/partidas/${idPartida}/cambioClub`, {
+                    fetch(`${API_URL}/partidas/${idPartida}/cambioClub`, {
                         method: "POST",
                         credentials: "include",
                         headers: { "Content-Type": "application/json" },

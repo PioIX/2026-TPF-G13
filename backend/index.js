@@ -5,8 +5,16 @@ const { Server } = require("socket.io");
 
 const app = express();
 const PORT = process.env.PORT || 4000;
+
+// Orígenes permitidos por CORS. Se configuran con CORS_ORIGINS en el .env
+// separados por coma. Ej: CORS_ORIGINS="http://localhost:3000,http://192.168.1.10:3000"
+// Si no se define, se permiten los orígenes locales por defecto.
+const ORIGINS_PERMITIDOS = process.env.CORS_ORIGINS
+  ? process.env.CORS_ORIGINS.split(",").map((o) => o.trim())
+  : ["http://localhost:3000", "http://localhost:3001"];
+
 app.use(cors({
-  origin: ["http://localhost:3000", "http://localhost:3001"],
+  origin: ORIGINS_PERMITIDOS,
   credentials: true
 }));
 app.use(express.json());
@@ -24,7 +32,7 @@ const server = app.listen(PORT, () => {
 
 const io = new Server(server, {
   cors: {
-    origin: ["http://localhost:3000", "http://localhost:3001"],
+    origin: ORIGINS_PERMITIDOS,
     methods: ["GET", "POST", "PUT", "DELETE"],
     credentials: true,
   },
