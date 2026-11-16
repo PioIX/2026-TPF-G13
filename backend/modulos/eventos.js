@@ -142,9 +142,18 @@ const REGLAS_EVENTOS = {
   },
   seleccion_titular: {
     categoria: "seleccion",
-    // Titular SIN haber sido convocado jamás: imposible.
     requiereEstadoSeleccion: ["convocado", "suplente", "titular"],
     estadoResultante: "titular",
+  },
+  seleccion_primera_convocatoria: {
+    categoria: "seleccion",
+    // PUERTA DE ENTRADA: la primera vez que el DT te llama. Exige estado
+    // 'nunca' (nunca integraste una lista) + edad razonable de surgimiento.
+    // Sin este evento, el estado 'nunca' no tiene salida posible: los demás
+    // eventos de Selección exigen estar ya convocado o haber estado fuera
+    // (y 'fuera' solo se alcanza desde un estado convocado).
+    requiereEstadoSeleccion: ["nunca"],
+    estadoResultante: "convocado",
   },
   seleccion_gol: {
     categoria: "seleccion",
@@ -215,6 +224,7 @@ const CODIGOS_LESION_NUEVA = [
 const CODIGOS_CONVOCATORIA = [
   "seleccion_hereda_10",
   "seleccion_titular",
+  "seleccion_primera_convocatoria",
   "seleccion_regreso",
 ];
 
@@ -497,6 +507,12 @@ function ajustarPesoPorContexto(evento, contexto) {
   // Selección: la fama empuja las convocatorias.
   if (categoria === "seleccion") {
     multiplicador *= 0.75 + grl / 200;
+  }
+
+  // La primera convocatoria es más probable con GRL alto (el DT convoca
+  // al que destaca) y baja si ya estás grande sin haber debutado.
+  if (codigo === "seleccion_primera_convocatoria") {
+    multiplicador *= 0.6 + grl / 100;
   }
 
   return Math.max(0, peso * Math.min(2, Math.max(0.25, multiplicador)));

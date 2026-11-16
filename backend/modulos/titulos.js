@@ -73,16 +73,37 @@ function elegibleTituloColectivo({ titulo, ligaClub, jerarquia, titulosPrevios, 
   const paisClub = MAPA_LIGA_A_PAIS[ligaClub];
   if (!paisClub) return false;
   if (normalizarTexto(titulo.pais) !== normalizarTexto(paisClub)) return false;
-  if (Number(titulo.prestigio) > Math.max(1, Number(jerarquia) || 1)) return false;
 
   const nombre = titulo.nombre;
+
+  // AUDITORÍA: la regla "prestigio <= jerarquía" aplicada a TODO dejaba
+  // ligas enteras sin NINGÚN título ganable (Premier/La Liga/Serie A/
+  // Bundesliga/Ligue 1 jerarquía 2-3: la liga es prestigio 3-4 y las
+  // copas nacionales tienen prestigio 1, pero la liga quedaba bloqueada
+  // por prestigio y las copas por no existir). La restricción fuerte
+  // ("un club chico no gana la liga") solo corresponde al título de
+  // LIGA; las copas nacionales las disputa cualquier club del país.
+  const jerarquiaReal = Math.max(1, Number(jerarquia) || 1);
+
   if (esLiga(nombre)) {
     // Segunda división: no disputa la liga de primera.
     if (normalizarTexto(ligaClub) === "primera nacional") return false;
+    // La liga exige prestigio acorde a la jerarquía del club.
+    // AUDITORÍA 2: incluso con el filtro solo en la liga, las grandes
+    // ligas europeas (prestigio 4) seguían INGANABLES desde jerarquía 2
+    // y la Ligue 1 (prestigio 3) también: esas ligas no tienen copa
+    // nacional en la BD, así que la jerarquía baja quedaba sin NADA.
+    // En el fútbol real un colista SÍ puede hacer el milagro
+    // (Nottingham Forest, Kaiserslautern 1998, Montpellier 2012): el
+    // título de liga no lleva filtro de jerarquía — el MERITO ponderado
+    // del sorteo ya hace que salga ganador casi siempre un gigante.
     return true;
   }
 
   if (esSupercopa(nombre)) {
+    // La supercopa también respeta el techo de prestigio (es un título
+    // "grande", se juega contra los campeones).
+    if (Number(titulo.prestigio) > jerarquiaReal) return false;
     // Clasificación: campeón de liga o copa del MISMO país la temporada previa.
     const temporadaPrev = Number(temporada) - 1;
     if (!(temporadaPrev >= 1)) return false;
@@ -93,7 +114,8 @@ function elegibleTituloColectivo({ titulo, ligaClub, jerarquia, titulosPrevios, 
     );
   }
 
-  // Copas nacionales: cualquier club del país puede disputarlas.
+  // Copas nacionales: cualquier club del país puede disputarlas
+  // (históricamente clubes chicos ganan copas: es SU vía de título).
   if (/copa/.test(normalizarTexto(nombre))) return true;
 
   return false;
