@@ -152,12 +152,17 @@ export default function PopupDueloTateti({
 
                     <div className="duelo-titulo-info">
                         {duelo.titulo?.imagen && (
-                            <Image
-                                src={duelo.titulo.imagen}
-                                alt={duelo.titulo.nombre}
-                                width={90}
-                                height={90}
-                            />
+                            <span className="duelo-titulo-marco">
+                                <Image
+                                    src={duelo.titulo.imagen}
+                                    alt={duelo.titulo.nombre}
+                                    fill
+                                    sizes="72px"
+                                    // Ver PopupTitulo.js: el optimizador de
+                                    // Next recibe 403 de varios CDNs.
+                                    unoptimized
+                                />
+                            </span>
                         )}
                         <div>
                             <p className="duelo-titulo-nombre">
