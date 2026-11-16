@@ -13,6 +13,12 @@ const ETIQUETAS_TIPO = {
     individual: "Premio individual"
 };
 
+// La imagen del trofeo se pide sin optimizar: el optimizador de Next trae las
+// imágenes remotas desde el servidor y muchos CDNs (football-logos, wikia,
+// seeklogo, aptoide...) le responden 403, así que el marco quedaba en 1px o
+// caía al emoji. Desde el navegador (que trae el Referer del jugador) cargan.
+const IMAGEN_SIN_OPTIMIZAR = { unoptimized: true };
+
 function Trofeo({ titulo }) {
     // Fallback visual: si la URL falla o no hay imagen, nunca se rompe el
     // perfil del jugador (auditoría de títulos).
@@ -22,15 +28,18 @@ function Trofeo({ titulo }) {
     return (
         <div className="popup-titulo-trofeo" aria-hidden="true">
             {mostrarImagen ? (
-                <Image
-                    src={titulo.imagen}
-                    alt={titulo.nombre}
-                    width={140}
-                    height={140}
-                    onError={() => setImagenRota(true)}
-                />
+                <div key={titulo.imagen} className="popup-titulo-trofeo-marco">
+                    <Image
+                        src={titulo.imagen}
+                        alt={titulo.nombre}
+                        fill
+                        sizes="(max-width: 480px) 60vw, 220px"
+                        {...IMAGEN_SIN_OPTIMIZAR}
+                        onError={() => setImagenRota(true)}
+                    />
+                </div>
             ) : (
-                <span>🏆</span>
+                <span className="popup-titulo-trofeo-emoji">🏆</span>
             )}
         </div>
     );
