@@ -1634,7 +1634,7 @@ io.on("connection", (socket) => {
                   : null;
 
           // ------------------------------------------------------------------
-          // Selección nacional (eventos 25-30).
+          // Selección nacional (eventos 25-30 + puerta de entrada).
           // Estados: nunca / convocado / suplente / titular / fuera.
           // - Los eventos de convocatoria (Heredás la N°10, Titular, Regreso)
           //   activan la convocatoria y suman una convocatoria al historial
@@ -1657,9 +1657,14 @@ io.on("connection", (socket) => {
           if (esEventoSeleccionNegativo) {
             nuevoEstadoSeleccion = "fuera";
           } else if (esEventoConvocatoria) {
-            // Heredás la N°10 / Titular en la Selección => titular.
+            // Regreso y Primera convocatoria: arrancás 'convocado' (el
+            // propio evento te dice que disputaste la Fecha FIFA);
+            // Heredás la N°10 / Titular: pasás directo a 'titular'.
             nuevoEstadoSeleccion =
-              codigoEvento === "seleccion_regreso" ? "convocado" : "titular";
+              codigoEvento === "seleccion_regreso" ||
+              codigoEvento === "seleccion_primera_convocatoria"
+                ? "convocado"
+                : "titular";
           }
 
           const estabaConvocado =
@@ -1785,87 +1790,70 @@ io.on("connection", (socket) => {
           cambioGRL = Math.round(cambioGRL * 10) / 10;
 
           // ------------------------------------------------------------------
-          // NOTA DE LA TEMPORADA (coherente con partidos, goles, asistencias
-          // y lesiones).
+          // NOTA DE LA TEMPORADA.
           //
-          // 1) Aporte ofensivo por partido: se compara contra lo que se espera
-          //    de un jugador de ese GRL y edad (golesEsperadosPorPartido y
-          //    asistenciasEsperadasPorPartido). Así un 7 no depende de tener
-          //    suerte de crack: rinde el que rinde MÁS de lo esperable.
-          //    La escala es independiente del total de partidos.
-          // 2) Disponibilidad: no jugar la temporada completa tiene costo.
-          //    Con pocos partidos (lesión grave, fin de carrera, recuperación
-          //    a mitad de año) la nota no puede ser alta aunque el jugador
-          //    haya metido un gol en esos pocos partidos: no hay temporada.
-          // 3) Forma: variación chica y acotada (nunca cambia el sentido).
+          // Modelo "estilo rating de prensa" (inspirado en SofaScore /
+          // WhoScored: base fija + ajustes por hechos, ver docs README):
+          //
+          //  1) BASE FIJA 5.5: como la base 6.5 de SofaScore o el 6.0 de
+          //     WhoScored, pero calibrada para una temporada completa donde
+          //     el promedio liguero ronda el aprobado. Es el punto de
+          //     partida ANTES de mirar nada, independiente del GRL.
+          //  2) AJUSTE POR VOLUMEN OFENSIVO: lo que de verdad mueve la
+          //     aguja es la contribución G+A POR PARTIDO. Pesamos
+          //     asistencias algo menos que goles (en la mayoría de los
+          //     modelos de rating una asistencia vale ~60-70% de un gol).
+          //  3) NIVEL: un crack sostiene una nota más alta aunque rinda
+          //     "lo esperado" (como la base 6.5 que nunca baja de piso
+          //     para un titular de Selección). Es un ajuste chico, no el
+          //     driver.
+          //  4) DISPONIBILIDAD: jugar importa. Los modelos profesionales
+          //     ponderan por minutos; acá, por partidos sobre 34. No
+          //     castigamos el rendimiento: achicamos el techo.
+          //  5) FORMA: variación acotada ±0.3.
           // ------------------------------------------------------------------
-          const factorDisponibilidad = partidosJugadosTemporada /
-            PARTIDOS_POR_TEMPORADA;
-
-          const golesEsperadosTemporada = Math.max(
-            0.01,
-            partidosJugadosTemporada * golesEsperadosPorPartido
-          );
-          const asistenciasEsperadasTemporada = Math.max(
-            0.01,
-            partidosJugadosTemporada * asistenciasEsperadasPorPartido
-          );
-
-          // +1.0 = doblar lo esperado, -1.0 = no aportar nada.
-          const desvioGoles = Math.max(
-            -1,
-            Math.min(1, (golesNuevos - golesEsperadosTemporada) /
-              golesEsperadosTemporada)
-          );
-          const desvioAsistencias = Math.max(
-            -1,
-            Math.min(1, (asistenciasNuevas - asistenciasEsperadasTemporada) /
-              asistenciasEsperadasTemporada)
-          );
-
-          // Base por nivel: un crack (GRL alto) arranca más arriba que uno
-          // mediocre, incluso cuando rinde justo "lo esperado". La nota pasa
-          // a ser un intermedio entre el nivel del jugador y su rendimiento
-          // real de la temporada, en vez de depender solo de este último.
-          const basePorNivel = Math.max(
-            -1.5,
-            Math.min(2.0, (grlJugador - 70) * 0.06)
-          );
-
-          // Rendimiento puro: arranca en 5.0 (temporada discreta).
-          // Un 10 exige superar claramente lo esperado en goles Y asistir.
-          const rendimientoDeportivo =
-            5.0 + basePorNivel + desvioGoles * 3.0 + desvioAsistencias * 1.5;
 
           // Un jugador que no disputó la temporada no puede sacarse nota:
           // fin de carrera o lesión que lo dejó sin partidos.
           const sinTemporada =
             esEventoFinCarrera || partidosJugadosTemporada <= 0;
 
-          // La nota se ajusta hacia abajo según los partidos disputados: con
-          // media temporada el techo baja ~1 punto, con un tercio ~2, y con
-          // casi nada de rodaje la nota queda de regular para abajo.
-          const castigoDisponibilidad =
-            2.0 * (1 - factorDisponibilidad) * (1 - factorDisponibilidad);
+          // Volumen ofensivo por partido (0.0 = temporada sin aporte).
+          const gaPorPartido = partidosJugadosTemporada > 0
+            ? (golesNuevos + 0.65 * asistenciasNuevas) /
+              partidosJugadosTemporada
+            : 0;
 
-          // Forma: ±0.4 como mucho (antes ±0.5, que podía mover demasiado).
-          const forma = (Math.random() - 0.5) * 0.8;
+          // Curva: 0.00 -> 5.5 | 0.30 -> ~6.3 | 0.60 -> ~7.1 |
+          // 0.90 -> ~7.9 | 1.20+ -> 8.7+ (nivel crack: ~0.9-1.2 G+A/90).
+          // Saturación: más de ~1.4 por partido casi no suma más.
+          const ajusteVolumen = Math.min(3.2, 2.7 * Math.pow(gaPorPartido, 0.85));
+
+          // Ajuste por nivel: hasta ±0.5, nunca decide solo.
+          const ajusteNivel = Math.max(
+            -0.5,
+            Math.min(0.5, (grlJugador - 70) * 0.02)
+          );
+
+          // Techo por disponibilidad: temporada completa = 1.0;
+          // media temporada baja el techo ~1.2; lesión grave, ~2.
+          const factorDisponibilidad = partidosJugadosTemporada /
+            PARTIDOS_POR_TEMPORADA;
+          const techoPorPartidos =
+            4.5 + 3.0 * Math.min(1, Math.pow(factorDisponibilidad, 0.7)) +
+            (gaPorPartido > 0 ? 1.0 : 0);
+
+          const notaCruda = 5.5 + ajusteVolumen * 0.75 + ajusteNivel;
+
+          // Forma: ±0.3 como mucho (nunca cambia el sentido de la nota).
+          const forma = (Math.random() - 0.5) * 0.6;
 
           const notaRendimiento = sinTemporada
             ? 3.0
-            : Math.min(
-                10,
-                Math.max(
+            : Math.round(Math.max(
                 3.0,
-                  Number(
-                    (
-                      rendimientoDeportivo -
-                      castigoDisponibilidad +
-                      forma
-                    ).toFixed(1)
-                  )
-                )
-              );
+                Math.min(10, Math.min(techoPorPartidos, notaCruda) + forma)
+              ) * 10) / 10;
 
           // Actualizamos posición, estadísticas y turnos pendientes.
 
@@ -1954,24 +1942,29 @@ io.on("connection", (socket) => {
               // desde la propia tabla de torneos: usamos el país tal cual
               // y normalizamos contra los continentes conocidos.
               const mapaContinentes = {
+                // Claves SIN acentos: la búsqueda se hace sobre el texto
+                // normalizado (normalizarTexto quita tildes). Con claves
+                // acentuadas ("españa", "méxico"...) la búsqueda fallaba
+                // y continenteSeleccion quedaba en null, dejando sin título
+                // continental a media selección del juego (auditado).
                 "argentina": "América del Sur",
                 "brasil": "América del Sur",
                 "inglaterra": "Europa",
-                "españa": "Europa",
+                "espana": "Europa",
                 "italia": "Europa",
                 "alemania": "Europa",
                 "francia": "Europa",
-                "países bajos": "Europa",
+                "paises bajos": "Europa",
                 "portugal": "Europa",
-                "turquía": "Europa",
+                "turquia": "Europa",
                 "escocia": "Europa",
-                "bélgica": "Europa",
+                "belgica": "Europa",
                 "suiza": "Europa",
                 "austria": "Europa",
-                "méxico": "América del Norte",
+                "mexico": "América del Norte",
                 "estados unidos": "América del Norte",
                 "arabia saudita": "Asia",
-                "japón": "Asia"
+                "japon": "Asia"
               };
               continenteSeleccion =
                 mapaContinentes[normalizarTexto(nombreSeleccion)] || null;
@@ -2259,8 +2252,10 @@ io.on("connection", (socket) => {
                      FROM Club
                  WHERE jerarquia <= ?
                    AND id_club <> ?
-                   ${excluidosRivales}`,
-                  [jerarquiaDestino, jugador.id_club || 0, ...paramsRivales]
+                   AND id_club NOT IN (
+                        SELECT id_club FROM ParticipantePartida WHERE id_partida = ? AND id_club IS NOT NULL
+                   )`,
+                 [jerarquiaDestino, jugador.id_club || 0, idPartida]
                 );
               }
             } else {
