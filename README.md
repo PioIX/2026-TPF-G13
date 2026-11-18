@@ -15,9 +15,9 @@
 
 ## Descripción general
 
-*El Trayecto* será una aplicación web multijugador 1v1 basada en la dinámica de los juegos de tablero. Dos jugadores competirán para construir la mejor carrera futbolística mediante lanzamientos de dado, movimientos por un tablero y eventos aleatorios.
+*El Trayecto* será una aplicación web multijugador 1v1 basada en la dinámica de los juegos de tablero. Dos jugadores competirán para construir la mejor carrera futbolística mediante lanzamientos de dado, avance por temporadas y eventos aleatorios.
 
-Cada jugador comenzará en una posición inicial y avanzará un casillero/temporada. Dependiendo del dado, podrán ocurrir distintos eventos que afectarán positiva o negativamente su carrera.
+Cada jugador comenzará en una posición inicial y avanzará una casilla/temporada por turno. En cada temporada pueden ocurrir distintos eventos que afectarán positiva o negativamente su carrera.
 
 Los eventos estarán relacionados con situaciones del mundo del fútbol, desde situaciones cotidianas hasta situaciones humorísticas, bizarras o inesperadas.
 
@@ -42,24 +42,30 @@ Desarrollar una aplicación web multijugador 1v1 que permita a dos usuarios comp
 # 2. Principales funcionalidades
 
 - Registro e inicio de sesión.
-- Autenticación de usuarios.
+- Autenticación de usuarios por sesión (cookies).
 - Diferenciación entre jugador y administrador.
 - Creación e ingreso a partidas 1v1 mediante salas.
 - Lobby de espera.
 - Límite de dos jugadores por sala.
-- Tablero de juego.
+- Tablero de juego (20 temporadas/casilleros).
 - Lanzamiento de dados.
 - Movimiento de los jugadores.
-- Sistema de turnos.
-- Eventos positivos, negativos y aleatorios.
-- Sistema de puntuación.
+- Sistema de turnos alternados.
+- Eventos positivos, negativos, aleatorios y de selección (36 eventos).
+- Sistema de lesiones con recuperación y turnos perdidos.
+- Sistema de títulos: colectivos (con el club), internacionales (club y selección) e individuales (premios como el Balón de Oro), con reglas de elegibilidad futbolísticamente coherentes.
+- Sistema de estadísticas de carrera: goles, asistencias, partidos, GRL (Gol Rating), fama, plata e idolatría.
+- Economía interna: premios en dinero por títulos y eventos, con moneda según la nacionalidad de la leyenda (USD, EUR, GBP, CHF).
+- Cambios de club con ofertas según jerarquía, transferencias internacionales y "vuelta a casa".
+- Sistema de puntuación final: puntos por títulos más suplemento por estadísticas.
 - Comunicación en tiempo real mediante WebSockets.
 - Finalización automática de la partida y determinación del ganador.
-- Historial de partidas.
+- Ranking global: mejores carreras e histórico agregado por jugador.
 - Panel de administración.
-- CRUD de usuarios, eventos y casilleros.
+- CRUD de usuarios, eventos, clubes, ligas y títulos.
+- Consulta de partidas desde el panel de administración.
 - Persistencia de información en base de datos.
-- Registro de clubes, títulos y selecciones asociados a la partida.
+- Registro de clubes, títulos, selecciones y nacionalidades asociados a la partida.
 
 ---
 
@@ -77,9 +83,10 @@ Podrá:
 - Lanzar el dado durante su turno.
 - Avanzar por el tablero.
 - Recibir eventos.
-- Consultar su estado y el del oponente.
+- Elegir un nuevo club cuando se le ofrece un cambio.
+- Consultar su estado y el del oponente en tiempo real.
 - Consultar el resultado de una partida finalizada.
-- Consultar su historial.
+- Consultar el ranking global de carreras e histórico de jugadores.
 
 ### Administrador
 
@@ -87,6 +94,8 @@ Podrá:
 
 - Gestionar usuarios.
 - Gestionar eventos.
+- Gestionar clubes y ligas.
+- Gestionar títulos (colectivos, internacionales e individuales).
 - Consultar información de partidas.
 - Realizar operaciones de creación, consulta, modificación y eliminación.
 
@@ -103,79 +112,79 @@ Al comenzar:
 3. El sistema registra al primer jugador en la partida.
 4. Si la sala ya existe y tiene un solo jugador, el segundo jugador puede ingresar.
 5. Si la sala ya tiene dos jugadores, se rechaza el ingreso.
-6. Cuando hay dos jugadores, la partida comienza.
-7. Se asignan los turnos.
-8. El jugador correspondiente lanza el dado.
-9. El sistema determina el evento.
-10. Se ejecuta el evento del casillero correspondiente.
+6. Cada jugador elige su club inicial, su selección (nacionalidad) y el nombre de su leyenda.
+7. Cuando ambos confirmaron su elección y marcaron "listo", la partida comienza.
+8. El jugador correspondiente lanza el dado y avanza una temporada.
+9. El sistema sortea el evento de la temporada según las condiciones actuales del jugador.
+10. Se aplican los efectos del evento y los títulos de la temporada.
 11. Se actualiza el estado de la partida.
-12. El cambio se comunica al otro jugador mediante WebSockets.
-13. Continúan los turnos hasta finalizar la partida.
-14. Cuando uno de los jugadores alcanza el último casillero, finaliza la partida y se determina el ganador según la puntuación obtenida.
+12. El cambio se comunica al otro jugador mediante WebSockets (el evento es privado: solo lo ve quien lo vivió).
+13. Continúan los turnos hasta que uno de los jugadores complete las 20 temporadas.
+14. Cuando un jugador alcanza el último casillero, la partida finaliza y se determina el ganador según la puntuación final de cada uno.
 
-El backend será responsable de validar los turnos, movimientos, resultados del dado y demás acciones relacionadas con el estado de la partida.
+El backend es responsable de validar turnos, movimientos, resultados del dado, cambios de club y demás acciones relacionadas con el estado de la partida. Todos los cambios de un turno se aplican dentro de una transacción: si algo falla, no se aplica nada parcialmente.
 
 ---
 
 # 5. Mecánica del juego
 
-El tablero estará compuesto por casilleros con diferentes efectos.
+El tablero está compuesto por 20 casilleros/temporadas, del arranque de la carrera hasta la retirada. Cada turno el jugador tira el dado, avanza una casilla y disputa una temporada completa.
 
 ## Dado
 
-El jugador podrá lanzar un dado. El resultado determinará el evento que atravesará el usuario.
-
-## Casilleros
-
-El tablero estará compuesto inicialmente por **20 casilleros**, cada uno con diferentes características y efectos.
-
-Podrán existir:
-
-- Casilleros normales.
-- Casilleros con eventos positivos.
-- Casilleros con eventos negativos.
-- Casilleros con eventos aleatorios.
-- Casilleros especiales.
-
-El último casillero representará la meta del tablero.
+El jugador lanza un dado de 6 caras. El resultado determina cuántas casillas se avanza en la tirada (cada tirada representa el avance de una temporada); sobre la temporada resultante se sortea el evento.
 
 ## Eventos
 
-Los eventos representarán diferentes situaciones de la carrera futbolística y podrán afectar positiva o negativamente los valores del jugador.
+Los eventos representan situaciones de la carrera futbolística y afectan los valores del jugador (fama, plata, idolatría, lesiones, turnos perdidos y cambios de club).
 
-Se implementarán inicialmente y aproximadamente **20 eventos**, que podrán ser positivos, negativos, aleatorios o especiales.
+Los eventos se sortean con pesos contextuales: cada evento exige condiciones reales para poder salir (tener contrato, estar convocado, estar lesionado, tener goles, jerarquía del club, temporadas mínimas/máximas, cooldowns) y algunos dependen del historial de la carrera (por ejemplo, "Vuelta a casa" exige haber jugado antes en ese club). Un evento imposible nunca entra al sorteo.
 
-Algunos ejemplos son:
+Categorías de eventos:
 
-- Buen rendimiento en un partido.
-- Contrato con un club importante.
-- Lesión.
-- Suspensión.
-- Transferencia.
-- Pérdida de titularidad.
-- Problemas con la prensa.
-- Situaciones humorísticas relacionadas con el fútbol argentino.
+- Positivos: figura del partido, gol agónico, ovación de la gente, récord personal, premio Puskás.
+- Negativos: lesiones (desgarro, esguince, fractura), rescisión de contrato, expulsión polémica, mala racha.
+- Aleatorios: caída al lado oscuro, traición, señor de la noche, entre otros.
+- De cambio de club: oferta de Primera, préstamo, transferencia internacional, venta inesperada, vuelta a casa.
+- De selección: heredar la N°10, titular en la Selección, gol internacional, regreso a la Selección.
+- Fin de carrera: retiro forzado (termina la partida para ambos jugadores).
 
-Los eventos serán administrables desde el panel de administración.
+Los eventos son administrables desde el panel de administración.
+
+## Títulos
+
+Al cerrar cada temporada el jugador puede ganar hasta un título por categoría:
+
+- **Colectivos**: ligas y copas del país de su club (el prestigio no puede superar la jerarquía del club; la Supercopa exige haber sido campeón la temporada anterior).
+- **Internacionales**: torneos de clubes según la confederación (Libertadores, Champions, Sudamericana, Europa League), Mundial de Clubes e Intercontinental (solo campeones continentales), y torneos de selecciones (Copa América, Eurocopa, Mundial, Olímpico sub-23, Finalissima).
+- **Individuales**: premios personales (Balón de Oro, The Best, Bota de Oro, Golden Boy, goleadores), con condiciones reales de goles, edad, convocatoria y liga.
+
+Reglas de coherencia entre jugadores: no puede haber dos campeones de la misma liga el mismo año, y el club de un rival nunca se ofrece como destino de un cambio de club.
+
+## Cambio de club
+
+Según el evento, el sistema ofrece clubes de la jerarquía correspondiente (más alta para transferencias, igual para rescisiones y préstamos, más baja para ventas). Cambiarse de club cuesta idolatría: la hinchada no perdona.
+
+## Estadísticas
+
+Durante la carrera se acumulan:
+
+- Goles y asistencias por temporada, según la nota de rendimiento.
+- GRL (Gol Rating): calidad general del jugador, con máximo histórico.
+- Fama: reconocimiento público (eventos y títulos).
+- Plata: premios en dinero de títulos y eventos, expresada en la moneda de la nacionalidad (USD, EUR, GBP, CHF).
+- Idolatría: lo que la hinchada siente por la leyenda (eventos, títulos individuales y permanencia en el club).
 
 ---
 
 # 6. Sistema de puntuación
 
-Los eventos podrán modificar distintos valores de la carrera del jugador, como:
+El puntaje final de una carrera se compone de dos partes:
 
-- Puntos de carrera.
-- Goles.
-- Asistencias.
-- Otros valores definidos durante el desarrollo.
+1. **Puntos por títulos**: cada título ganado suma sus puntos de campeonato (definidos por prestigio del trofeo: una liga nacional vale menos que una Champions; el Balón de Oro es el premio individual más valioso).
+2. **Suplemento por estadísticas**: al finalizar la partida se suma un suplemento calculado con los goles, asistencias, fama, plata, idolatría y GRL acumulados durante la carrera.
 
-Al finalizar la partida, estos valores serán utilizados para determinar el ganador.
-
-El resultado será almacenado para permitir su consulta posterior.
-
-> **Nota:** La fórmula exacta de la puntuación final será definida por nos (G13) durante el desarrollo e implementación del juego.
-
-El jugador que obtenga la mayor puntuación final será el ganador
+El jugador que obtenga la mayor puntuación final es el ganador. El resultado y su desglose quedan almacenados para su consulta posterior en la pantalla final de la partida y en el ranking global.
 
 ---
 
@@ -183,50 +192,47 @@ El jugador que obtenga la mayor puntuación final será el ganador
 
 ## HTTP
 
-Se utilizará `Fetch` para las operaciones que no requieran comunicación en tiempo real, como:
+Se utiliza `Fetch` para las operaciones que no requieren comunicación en tiempo real, como:
 
 - Registro e inicio de sesión.
-- Gestión de usuarios.
-- Gestión de eventos.
-- Gestión de casilleros.
-- Consulta del historial.
-- Operaciones CRUD.
-- Consultas de información de clubes, títulos y selecciones.
+- Gestión de usuarios, eventos, clubes, ligas y títulos (CRUD).
+- Consultas de información de clubes, ligas y selecciones.
+- Elección inicial de club y selección.
+- Cambio de club tras un evento.
+- Consulta del ranking y de los resultados de partidas finalizadas.
 
-## WebSockets
+## WebSockets (Socket.IO)
 
-Se utilizarán para:
+Se utilizan para:
 
-- Conexión de jugadores.
+- Conexión de jugadores a la sala.
 - Ingreso a salas.
 - Inicio de partidas.
-- Turnos.
-- Lanzamientos de dados.
+- Turnos y lanzamientos de dados.
 - Movimientos.
-- Eventos.
-- Actualización de estadísticas.
+- Eventos (privados para quien los vivió).
+- Actualización de estadísticas y paneles de jugador.
 - Finalización de partidas.
 
-Esto permitirá que ambos jugadores vean los cambios de la partida en tiempo real.
+Esto permite que ambos jugadores vean los cambios de la partida en tiempo real.
 
 ---
 
 # 8. Persistencia
 
-La aplicación utilizará una base de datos **MySQL** para almacenar:
+La aplicación utiliza una base de datos **MySQL** para almacenar:
 
-- Usuarios.
-- Partidas.
-- Participantes.
-- Casilleros.
-- Eventos.
-- Eventos ocurridos durante las partidas.
-- Resultados.
-- Clubes.
-- Títulos.
-- Selecciones.
+- Usuarios (con roles jugador/administrador).
+- Partidas y participantes de partida (con el estado completo de cada carrera).
+- Clubes, ligas, selecciones y estadlos.
+- Eventos y sus efectos.
+- Eventos ocurridos durante las partidas (con semilla reproducible para auditoría).
+- Estado de carrera por evento (cooldowns y dependencias históricas).
+- Historial de clubes por participante.
+- Títulos colectivos, internacionales e individuales, y títulos ganados por cada carrera.
+- Resultados finales y puntajes.
 
-La información permanecerá almacenada una vez finalizada una partida.
+La información permanece almacenada una vez finalizada una partida.
 
 ---
 
@@ -235,6 +241,8 @@ La información permanecerá almacenada una vez finalizada una partida.
 ![Diagrama](docs/DER%20-%20Proyecto%20Final%20-%20Grupo%2013.drawio.png)
 
 # 10. Diseño inicial
+
+> Capturas del diseño inicial del juego (puede diferir de la implementación final).
 
 ![Diagrama](docs/diseño/Captura%20de%20pantalla%20(490).png)
 
@@ -264,7 +272,6 @@ La información permanecerá almacenada una vez finalizada una partida.
 
 ![Diagrama](docs/diseño/Captura%20de%20pantalla%20(503).png)
 
-
 ---
 
 # 11. Planificación
@@ -281,8 +288,8 @@ La información permanecerá almacenada una vez finalizada una partida.
 | Eventos | Eventos y efectos | Santino Capote + Lucas Mortola | 24/10 |
 | Partidas 1v1 | Creación e ingreso a salas | Ezequiel Barbeito + Juan Manuel Pereyra | 27/10 |
 | WebSockets | Sincronización en tiempo real | Ezequiel Barbeito | 31/10 |
-| CRUD | Usuarios, eventos y casilleros | Juan Manuel Pereyra + Lucas Mortola | 04/11 |
-| Historial | Persistencia de partidas | Lucas Mortola + Juan Manuel Pereyra | 07/11 |
+| CRUD | Usuarios, eventos, clubes, ligas y títulos | Juan Manuel Pereyra + Lucas Mortola | 04/11 |
+| Ranking | Persistencia y ranking de carreras | Lucas Mortola + Juan Manuel Pereyra | 07/11 |
 | Integración | Integración general | Todo el grupo | 11/11 |
 | Pruebas | Testing y corrección | Todo el grupo | 14/11 |
 | Documentación | README y DER final | Todo el grupo | 17/11 |
@@ -319,7 +326,7 @@ La información permanecerá almacenada una vez finalizada una partida.
 - Comunicación mediante WebSockets.
 - Sincronización de ambos jugadores.
 - Movimientos y eventos en tiempo real.
-- CRUD de usuarios, eventos y casilleros.
+- CRUD de usuarios, eventos, clubes, ligas y títulos.
 - Integración entre frontend, backend y base de datos.
 
 ## Hito 4 — Producto final
@@ -328,7 +335,7 @@ La información permanecerá almacenada una vez finalizada una partida.
 
 - Sistema completo y funcional.
 - Persistencia de partidas.
-- Historial.
+- Ranking de carreras.
 - Panel de administración.
 - Pruebas y corrección de errores.
 - Documentación completa.
@@ -367,10 +374,12 @@ El sistema contará con:
 - Partidas 1v1.
 - Sistema de salas con un máximo de dos jugadores.
 - Tablero y dado.
-- Eventos aleatorios.
-- Sistema de puntuación.
-- Historial.
-- CRUD.
+- Eventos aleatorios con condiciones y dependencias históricas.
+- Sistema de títulos colectivos, internacionales e individuales.
+- Sistema de puntuación con desglose final.
+- Economía interna con moneda por nacionalidad.
+- Ranking global de carreras e histórico de jugadores.
+- CRUD de usuarios, eventos, clubes, ligas y títulos.
 - Base de datos MySQL.
 - Comunicación HTTP mediante Fetch.
 - Comunicación en tiempo real mediante WebSockets.

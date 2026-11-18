@@ -1,0 +1,133 @@
+.popup-titulo-contenido {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    text-align: center;
+}
+
+.popup-titulo-intro {
+    margin: 0;
+    color: #c7d3ee;
+    font-size: 0.85rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+}
+
+/* Marco del trofeo.
+   El catálogo mezcla logos cuadrados (ligas), escudos ovalados, fotos de
+   trofeos en 4:3 y recortes verticales. Para que TODOS se vean bien se usa un
+   marco cuadrado con el logo centrado y contenido (object-fit: contain), sin
+   escalarlo a un tamaño fijo: entra completo y nunca se deforma ni se recorta. */
+.popup-titulo-trofeo {
+    margin: 10px 0 4px;
+    width: clamp(112px, 30vw, 168px);
+    aspect-ratio: 1 / 1;
+    display: grid;
+    place-items: center;
+    position: relative;
+    border-radius: 18px;
+    background:
+        radial-gradient(circle at 30% 22%, rgba(255, 226, 130, 0.28), transparent 60%),
+        linear-gradient(160deg, rgba(24, 33, 62, 0.92), rgba(12, 18, 38, 0.96));
+    border: 1px solid rgba(255, 205, 84, 0.4);
+    box-shadow:
+        0 10px 26px rgba(0, 0, 0, 0.38),
+        0 0 30px rgba(255, 205, 84, 0.18),
+        inset 0 1px rgba(255, 255, 255, 0.12);
+    overflow: hidden;
+    isolation: isolate;
+}
+
+/* Zona útil donde dibujar el logo. El padding es el "aire" del marco:
+   deja margen parejo alrededor de cualquier imagen. */
+.popup-titulo-trofeo-marco {
+    position: relative;
+    width: 82%;
+    height: 82%;
+    display: grid;
+    place-items: center;
+}
+
+.popup-titulo-trofeo-marco img {
+    /* `fill` de next/image = absolute; el logo entra completo y centrado.
+       Con contain nunca se deforma ni se recorta, sea cuadrado, ovalado o
+       una foto apaisada. */
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    object-position: center;
+    padding: 2px;
+}
+
+.popup-titulo-trofeo-emoji {
+    font-size: clamp(3.2rem, 9vw, 5rem);
+    line-height: 1;
+}
+
+/* Brillo interno del marco: queda por debajo de la imagen (el logo tiene
+   position: relative) para que el titileo no "coma" el trofeo. */
+.popup-titulo-trofeo::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    box-shadow: inset 0 0 34px rgba(255, 205, 84, 0.18);
+    animation: popup-titulo-brillo 2.4s ease-in-out infinite alternate;
+}
+
+@keyframes popup-titulo-brillo {
+    from {
+        box-shadow: inset 0 0 18px rgba(255, 205, 84, 0.1);
+    }
+
+    to {
+        box-shadow: inset 0 0 42px rgba(255, 205, 84, 0.3);
+    }
+}
+
+.popup-titulo-nombre {
+    margin: 4px 0 0;
+    color: #ffe2a0;
+    font-size: clamp(1.35rem, 5vw, 1.85rem);
+    text-shadow: 0 0 24px rgba(255, 205, 84, 0.42);
+}
+
+.popup-titulo-detalle {
+    margin: 0;
+    color: #b9c8ff;
+    font-size: 0.82rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.popup-titulo-prestigio {
+    margin: 6px 0 0;
+    color: #ffd66e;
+    font-weight: 700;
+    font-size: 0.8rem;
+    letter-spacing: 0.12em;
+}
+
+.popup-titulo-puntos {
+    margin: 0;
+    color: #f3f7ff;
+    font-size: 0.95rem;
+}
+
+.popup-titulo-seccion {
+    margin: 14px 0 0;
+    color: #f3f7ff;
+    font-size: 1.1rem;
+}
+
+.popup-titulo-vacio {
+    margin: 10px 0 0;
+    color: #8b9bc4;
+    font-style: italic;
+    text-align: center;
+    line-height: 1.6;
+}

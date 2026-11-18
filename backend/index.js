@@ -5,8 +5,16 @@ const { Server } = require("socket.io");
 
 const app = express();
 const PORT = process.env.PORT || 4000;
+
+// Orígenes permitidos por CORS. Se configuran con CORS_ORIGINS en el .env
+// separados por coma. Ej: CORS_ORIGINS="http://localhost:3000,http://192.168.1.10:3000"
+// Si no se define, se permiten los orígenes locales por defecto.
+const ORIGINS_PERMITIDOS = process.env.CORS_ORIGINS
+  ? process.env.CORS_ORIGINS.split(",").map((o) => o.trim())
+  : ["http://localhost:3000", "http://localhost:3001"];
+
 app.use(cors({
-  origin: ["http://localhost:3000", "http://localhost:3001"],
+  origin: ORIGINS_PERMITIDOS,
   credentials: true
 }));
 app.use(express.json());
@@ -24,7 +32,7 @@ const server = app.listen(PORT, () => {
 
 const io = new Server(server, {
   cors: {
-    origin: ["http://localhost:3000", "http://localhost:3001"],
+    origin: ORIGINS_PERMITIDOS,
     methods: ["GET", "POST", "PUT", "DELETE"],
     credentials: true,
   },
@@ -36,7 +44,87 @@ io.use((socket, next) => {
 
 const mysql = require("./modulos/mysql");
 
-//PEDIDOS 
+// ============================================================================
+// SISTEMA DE EVENTOS — lógica futbolística centralizada.
+// Todas las validaciones de elegibilidad, dependencias históricas y
+// probabilidades de los eventos se resuelven en modulos/eventos.js.
+// ============================================================================
+const eventosModulo = require("./modulos/eventos");
+const titulosModulo = require("./modulos/titulos");
+const {
+normalizarTexto,
+CODIGOS_LESION_NUEVA,
+CODIGOS_CONVOCATORIA,
+CODIGOS_CAMBIO_CLUB,
+ESTADOS_CONVOCADO,
+generarEvento,
+} = eventosModulo;
+
+// Detección robusta del esquema: si las columnas de la auditoría no están
+// todavía (migración pendiente), el juego sigue funcionando en modo
+// compatible (sin las validaciones nuevas) en vez de romper los turnos.
+let esquemaEventos = {
+codigoEvento: false, // Evento.codigo_evento
+finCarrera: false, // Evento.fin_carrera
+contexto: false, // ParticipantePartida.id_nacionalidad / convocatorias / estado_seleccion
+clubesHistorico: false, // tabla ClubesHistorico
+};
+
+async function detectarEsquemaEventos() {
+try {
+  const filas = await mysql.realizarQuery(
+    `SELECT TABLE_NAME, COLUMN_NAME
+       FROM information_schema.columns
+      WHERE table_schema = DATABASE()
+        AND (
+             (TABLE_NAME = 'Evento' AND COLUMN_NAME IN ('codigo_evento','fin_carrera'))
+          OR (TABLE_NAME = 'ParticipantePartida' AND COLUMN_NAME IN ('id_nacionalidad','convocatorias','estado_seleccion'))
+        )`
+  );
+  const pares = new Set(filas.map((f) => `${f.TABLE_NAME}.${f.COLUMN_NAME}`));
+  const tablas = await mysql.realizarQuery(
+    `SELECT TABLE_NAME FROM information_schema.tables
+      WHERE table_schema = DATABASE()
+        AND TABLE_NAME IN ('ClubesHistorico','EstadoCarreraEvento')`
+  );
+  const nombres = new Set(tablas.map((t) => t.TABLE_NAME || t.table_name));
+  esquemaEventos = {
+    codigoEvento: pares.has("Evento.codigo_evento"),
+    finCarrera: pares.has("Evento.fin_carrera"),
+    contexto: pares.has("ParticipantePartida.id_nacionalidad") &&
+              pares.has("ParticipantePartida.convocatorias") &&
+              pares.has("ParticipantePartida.estado_seleccion"),
+    clubesHistorico: nombres.has("ClubesHistorico"),
+    estadoCarreraEvento: nombres.has("EstadoCarreraEvento"),
+  };
+  console.log("[eventos] esquema detectado:", esquemaEventos);
+} catch (error) {
+  console.error("[eventos] no se pudo detectar el esquema:", error.message);
+}
+}
+detectarEsquemaEventos();
+
+//
+// MIDDLEWARE DE ADMINISTRADOR
+// Verifica que la sesión tenga un usuario con rol admin.
+// Se usa en todas las rutas de gestión del panel de administración.
+function requireAdmin(req, res, next) {
+  if (!req.session.usuario) {
+    return res.status(401).json({
+      error: "Tenés que iniciar sesión"
+    });
+  }
+
+  if (req.session.usuario.rol !== "admin") {
+    return res.status(403).json({
+      error: "Solo el administrador puede realizar esta acción"
+    });
+  }
+
+  next();
+}
+
+// PEDIDOS  
 // OBTENER TODOS LOS CLUBES
 
 // OBTENER TODOS LOS CLUBES
@@ -85,6 +173,27 @@ app.get("/ligas", async (req, res) => {
 
 
 
+// OBTENER TODAS LAS SELECCIONES (para elegir nacionalidad)
+app.get("/selecciones", async (req, res) => {
+  try {
+    const selecciones = await mysql.realizarQuery(
+      `SELECT id_seleccion, nombre
+       FROM Seleccion
+       ORDER BY nombre ASC`
+    );
+
+    res.status(200).json(selecciones);
+  } catch (error) {
+    console.error("Error al obtener las selecciones:", error);
+
+    res.status(500).json({
+      error: "Error al obtener las selecciones"
+    });
+  }
+});
+
+
+
 app.get("/partidas/:idPartida/eleccion", async (req, res) => {
   try {
     if (!req.session.usuario) {
@@ -123,7 +232,8 @@ app.get("/partidas/:idPartida/eleccion", async (req, res) => {
                 pp.id_usuario,
                 pp.nombre_leyenda,
                 pp.id_club,
-                pp.nombre_leyenda,
+                pp.id_seleccion,
+                sel.nombre AS nombre_seleccion,
                 u.nombre_usuario,
                 c.nombre AS nombre_club,
                 c.liga,
@@ -139,6 +249,8 @@ app.get("/partidas/:idPartida/eleccion", async (req, res) => {
                 ON pp.id_usuario = u.id_usuario
              LEFT JOIN Club c
                 ON pp.id_club = c.id_club
+             LEFT JOIN Seleccion sel
+                ON pp.id_seleccion = sel.id_seleccion
              WHERE pp.id_partida = ${idPartida}`
     );
 
@@ -183,6 +295,11 @@ app.post("/partidas/:idPartida/eleccion", async (req, res) => {
       typeof req.body.nombre_leyenda === "string"
         ? req.body.nombre_leyenda.trim()
         : "";
+    // Nacionalidad: la selección del jugador (opcional pero recomendada;
+    // sin selección no puede jugar torneos de selecciones).
+    const idSeleccion = req.body.id_seleccion == null
+      ? null
+      : Number(req.body.id_seleccion);
 
     // 2. Validar los datos recibidos.
     if (
@@ -199,6 +316,25 @@ app.post("/partidas/:idPartida/eleccion", async (req, res) => {
       return res.status(400).json({
         error: "El nombre de la leyenda debe tener entre 1 y 100 caracteres"
       });
+    }
+
+    // Si vino nacionalidad, tiene que existir en Seleccion.
+    if (idSeleccion !== null) {
+      if (!Number.isInteger(idSeleccion) || idSeleccion <= 0) {
+        return res.status(400).json({
+          error: "La nacionalidad enviada no es válida"
+        });
+      }
+
+      const selecciones = await mysql.realizarQuery(
+        `SELECT id_seleccion FROM Seleccion WHERE id_seleccion = ${idSeleccion}`
+      );
+
+      if (!selecciones || selecciones.length === 0) {
+        return res.status(400).json({
+          error: "La selección elegida no existe"
+        });
+      }
     }
 
     // 3. Comprobar que la partida exista y tenga dos participantes.
@@ -245,13 +381,43 @@ app.post("/partidas/:idPartida/eleccion", async (req, res) => {
       .replace(/'/g, "\\'");
 
     // 7. Guardar la elección del usuario actual.
+    // La nacionalidad del jugador se guarda por separado de la convocatoria
+    // (id_nacionalidad) si el esquema de la auditoría ya está aplicado.
+    const tieneContexto = esquemaEventos.contexto;
     await mysql.realizarQuery(
       `UPDATE ParticipantePartida
              SET id_club = ${idClub},
+                 grl = 57,
+                 edad = 18,
+                 id_seleccion = ${tieneContexto ? idSeleccion === null ? "NULL" : idSeleccion : idSeleccion === null ? "NULL" : idSeleccion},
+                 ${tieneContexto ? `id_nacionalidad = ${idSeleccion === null ? "NULL" : idSeleccion},` : ""}
+                 ${tieneContexto ? `estado_seleccion = 'nunca', convocatorias = 0, temporadas_fuera_seleccion = 0,` : ""}
+                 lesionado = 0,
+                 lesion_hasta_temporada = NULL,
                  nombre_leyenda = '${nombreEscapado}'
              WHERE id_partida = ${idPartida}
                AND id_usuario = ${idUsuario}`
     );
+
+    // Historial de clubes: la carrera arranca en este club (base de la
+    // dependencia histórica de "Vuelta a casa").
+    if (esquemaEventos.clubesHistorico) {
+      const participante = await mysql.realizarQuery(
+        `SELECT id_participante FROM ParticipantePartida
+          WHERE id_partida = ${idPartida} AND id_usuario = ${idUsuario}`
+      );
+      if (participante && participante.length > 0) {
+        await mysql.realizarQuery(
+          `DELETE FROM ClubesHistorico WHERE id_participante = ?`,
+          [participante[0].id_participante]
+        );
+        await mysql.realizarQuery(
+          `INSERT INTO ClubesHistorico (id_participante, id_club, temporada_inicio)
+           VALUES (?, ?, 1)`,
+          [participante[0].id_participante, idClub]
+        );
+      }
+    }
 
     // 8. Consultar las elecciones actualizadas.
     const jugadores = await mysql.realizarQuery(
@@ -260,6 +426,8 @@ app.post("/partidas/:idPartida/eleccion", async (req, res) => {
                 pp.id_usuario,
                 pp.nombre_leyenda,
                 pp.id_club,
+                pp.id_seleccion,
+                sel.nombre AS nombre_seleccion,
                 u.nombre_usuario,
                 c.nombre AS nombre_club,
                 c.liga,
@@ -275,6 +443,8 @@ app.post("/partidas/:idPartida/eleccion", async (req, res) => {
                 ON pp.id_usuario = u.id_usuario
              LEFT JOIN Club c
                 ON pp.id_club = c.id_club
+             LEFT JOIN Seleccion sel
+                ON pp.id_seleccion = sel.id_seleccion
              WHERE pp.id_partida = ${idPartida}`
     );
 
@@ -324,14 +494,159 @@ app.post("/partidas/:idPartida/eleccion", async (req, res) => {
   }
 });
 
+// El jugador elige su nuevo club tras un evento de cambio de club.
+app.post("/partidas/:idPartida/cambioClub", async (req, res) => {
+  try {
+    if (!req.session.usuario) {
+      return res.status(401).json({ error: "Tenés que iniciar sesión" });
+    }
+
+    const idPartida = Number(req.params.idPartida);
+    const idUsuario = Number(req.session.usuario.id_usuario);
+    const idClub = Number(req.body.id_club);
+
+    if (
+      !Number.isInteger(idPartida) || idPartida <= 0 ||
+      !Number.isInteger(idUsuario) || idUsuario <= 0 ||
+      !Number.isInteger(idClub) || idClub <= 0
+    ) {
+      return res.status(400).json({ error: "Datos inválidos" });
+    }
+
+    const participantes = await mysql.realizarQuery(
+      `SELECT id_participante, id_club
+              FROM ParticipantePartida
+              WHERE id_partida = ?
+                AND id_usuario = ?`,
+      [idPartida, idUsuario]
+    );
+
+    if (!participantes || participantes.length === 0) {
+      return res.status(403).json({ error: "No participás de esta partida" });
+    }
+
+    // El club destino debe existir y ser distinto del actual.
+    const clubActualPrevio = Number(participantes[0].id_club) || 0;
+    const clubes = await mysql.realizarQuery(
+      `SELECT id_club, jerarquia FROM Club
+              WHERE id_club = ?
+                AND id_club <> ?`,
+      [idClub, clubActualPrevio]
+    );
+
+    if (!clubes || clubes.length === 0) {
+      return res.status(400).json({ error: "El club seleccionado no es válido" });
+    }
+
+    await mysql.realizarQuery(
+      `UPDATE ParticipantePartida
+              SET id_club = ?,
+                  -- Cambiarse de club enfada a la hinchada: baja la idolatría.
+                  idolatria = GREATEST(0, idolatria - 30)
+              WHERE id_partida = ?
+                AND id_usuario = ?`,
+      [idClub, idPartida, idUsuario]
+    );
+
+    // Historial de clubes: cierra la etapa anterior y abre la nueva.
+    // Es lo que habilita "Vuelta a casa" con datos reales de la carrera.
+    if (esquemaEventos.clubesHistorico) {
+      const temporadaActual = Number(participantes[0].posicion_actual) || 1;
+      await mysql.realizarQuery(
+        `UPDATE ClubesHistorico
+            SET temporada_fin = ?
+          WHERE id_participante = ?
+            AND id_club = ?
+            AND temporada_fin IS NULL`,
+        [Math.max(1, temporadaActual - 1), participantes[0].id_participante,
+         clubActualPrevio]
+      );
+      await mysql.realizarQuery(
+        `INSERT INTO ClubesHistorico (id_participante, id_club, temporada_inicio)
+         VALUES (?, ?, ?)`,
+        [participantes[0].id_participante, idClub, temporadaActual]
+      );
+    }
+
+    const jugadores = await mysql.realizarQuery(
+      `SELECT
+                pp.id_participante,
+                pp.id_usuario,
+                pp.id_club,
+                pp.nombre_leyenda,
+                pp.posicion_actual,
+                pp.id_seleccion,
+                pp.id_nacionalidad,
+                pp.grl,
+                pp.edad,
+                pp.goles,
+                pp.asistencias,
+                pp.partidos_jugados,
+                pp.fama,
+                pp.plata,
+                pp.idolatria,
+                pp.puntos_campeon,
+                pp.lesionado,
+                pp.turnos_pendientes_perdidos,
+                pp.id_titulo,
+                pp.id_titulo_individual,
+                pp.id_titulo_internacional,
+                c.nombre AS nombre_club,
+                c.liga,
+                c.jerarquia AS jerarquia_club,
+                sel.nombre AS nombre_seleccion,
+                nat.nombre AS nacionalidad,
+                t.nombre AS nombre_titulo,
+                t.imagen AS imagen_titulo,
+                t.prestigio AS prestigio_titulo,
+                ti.nombre AS nombre_titulo_individual,
+                ti.imagen AS imagen_titulo_individual,
+                ti.prestigio AS prestigio_titulo_individual,
+                tint.nombre AS nombre_titulo_internacional,
+                tint.imagen AS imagen_titulo_internacional,
+                tint.prestigio AS prestigio_titulo_internacional,
+                (SELECT COUNT(*) FROM TituloGanado tg
+                  WHERE tg.id_participante = pp.id_participante) AS cantidad_titulos
+              FROM ParticipantePartida pp
+              LEFT JOIN Club c
+                ON pp.id_club = c.id_club
+              LEFT JOIN Seleccion sel
+                ON pp.id_seleccion = sel.id_seleccion
+              LEFT JOIN Seleccion nat
+                ON nat.id_seleccion = pp.id_nacionalidad
+              LEFT JOIN Titulo t
+                ON pp.id_titulo = t.id_titulo
+              LEFT JOIN TituloIndividual ti
+                ON pp.id_titulo_individual = ti.id_titulo_individual
+              LEFT JOIN TituloInternacional tint
+                ON pp.id_titulo_internacional = tint.id_titulo_internacional
+              WHERE pp.id_partida = ?`,
+      [idPartida]
+    );
+
+    io.to(`partida_${idPartida}`).emit("jugadoresActualizados", jugadores);
+
+    return res.status(200).json({
+      mensaje: "Firmaste con tu nuevo club",
+      jugadores
+    });
+
+  } catch (error) {
+    console.error("Error al cambiar de club:", error);
+    return res.status(500).json({ error: "No se pudo completar el cambio de club" });
+  }
+});
+
 //
 // REGISTRO DE USUARIO
 app.post("/registro", async (req, res) => {
   try {
     const { nombre_usuario, email, contrasena } = req.body;
+    const nombre = typeof nombre_usuario === "string" ? nombre_usuario.trim() : "";
+    const correo = typeof email === "string" ? email.trim().toLowerCase() : "";
 
     // Verificamos que estén todos los datos
-    if (!nombre_usuario || !email || !contrasena) {
+    if (!nombre || !correo || !contrasena) {
       return res.status(400).json({
         error: "Faltan datos"
       });
@@ -339,7 +654,8 @@ app.post("/registro", async (req, res) => {
 
     // Verificamos si ya existe un usuario con ese email
     const usuarioExistente = await mysql.realizarQuery(
-      `SELECT * FROM Usuario WHERE email = '${email}'`
+      "SELECT id_usuario FROM Usuario WHERE email = ?",
+      [correo]
     );
 
     if (usuarioExistente.length > 0) {
@@ -348,10 +664,10 @@ app.post("/registro", async (req, res) => {
       });
     }
 
-    // Insertamos el nuevo usuario
+    // Insertamos el nuevo usuario. El rol no se toma del request: siempre será jugador.
     await mysql.realizarQuery(
-      `INSERT INTO Usuario (nombre_usuario, email, contrasena)
-       VALUES ('${nombre_usuario}', '${email}', '${contrasena}')`
+      "INSERT INTO Usuario (nombre_usuario, email, contrasena, rol) VALUES (?, ?, ?, 'jugador')",
+      [nombre, correo, contrasena]
     );
 
     res.status(201).json({
@@ -368,13 +684,74 @@ app.post("/registro", async (req, res) => {
 });
 
 //
+// CREACIÓN DE USUARIO ADMINISTRADOR
+// Solo permite crear el admin mientras no exista ninguno,
+// para que no quede un registro público de administradores.
+app.post("/admin", async (req, res) => {
+  try {
+    const { nombre_usuario, email, contrasena } = req.body;
+    const nombre = typeof nombre_usuario === "string" ? nombre_usuario.trim() : "";
+    const correo = typeof email === "string" ? email.trim().toLowerCase() : "";
+
+    // Verificamos que estén todos los datos
+    if (!nombre || !correo || !contrasena) {
+      return res.status(400).json({
+        error: "Faltan datos"
+      });
+    }
+
+    // Solo puede existir un administrador.
+    const administradores = await mysql.realizarQuery(
+      "SELECT id_usuario FROM Usuario WHERE rol = ?",
+      ["admin"]
+    );
+
+    if (administradores.length > 0) {
+      return res.status(409).json({
+        error: "Ya existe un administrador"
+      });
+    }
+
+    // Verificamos si ya existe un usuario con ese email
+    const usuarioExistente = await mysql.realizarQuery(
+      "SELECT id_usuario FROM Usuario WHERE email = ?",
+      [correo]
+    );
+
+    if (usuarioExistente.length > 0) {
+      return res.status(400).json({
+        error: "El email ya está registrado"
+      });
+    }
+
+    // Insertamos el administrador
+    await mysql.realizarQuery(
+      "INSERT INTO Usuario (nombre_usuario, email, contrasena, rol) VALUES (?, ?, ?, 'admin')",
+      [nombre, correo, contrasena]
+    );
+
+    res.status(201).json({
+      mensaje: "Administrador creado correctamente"
+    });
+
+  } catch (error) {
+    console.error("Error al crear administrador:", error);
+
+    res.status(500).json({
+      error: "Error al crear administrador"
+    });
+  }
+});
+
+//
 // LOGIN DE USUARIO
 app.post("/login", async (req, res) => {
   try {
     const { email, contrasena } = req.body;
+    const correo = typeof email === "string" ? email.trim().toLowerCase() : "";
 
     // Verificamos que estén todos los datos
-    if (!email || !contrasena) {
+    if (!correo || !contrasena) {
       return res.status(400).json({
         error: "Faltan datos"
       });
@@ -382,7 +759,8 @@ app.post("/login", async (req, res) => {
 
     // Buscamos el usuario por email
     const usuarios = await mysql.realizarQuery(
-      `SELECT * FROM Usuario WHERE email = '${email}'`
+      "SELECT * FROM Usuario WHERE email = ?",
+      [correo]
     );
 
     // Si no existe
@@ -458,7 +836,8 @@ app.post("/salas/entrar", async (req, res) => {
 
     // Buscamos si ya existe una partida con ese nombre
     const partidas = await mysql.realizarQuery(
-      `SELECT * FROM Partida WHERE nombre_sala = '${nombre_sala}'`
+      `SELECT * FROM Partida WHERE nombre_sala = ?`,
+      [nombre_sala]
     );
 
     // Si no existe, creamos la partida
@@ -466,7 +845,8 @@ app.post("/salas/entrar", async (req, res) => {
 
       const idPartida = await mysql.realizarQueryInsert(
         `INSERT INTO Partida (nombre_sala, estado)
-                 VALUES ('${nombre_sala}', 'esperando')`
+                 VALUES (?, 'esperando')`,
+        [nombre_sala]
       );
 
       // Agregamos al usuario como participante
@@ -493,7 +873,7 @@ app.post("/salas/entrar", async (req, res) => {
 
     // Verificamos si el usuario ya está dentro
     const usuarioYaEsta = participantes.some(
-      participante => participante.id_usuario === idUsuario
+      participante => Number(participante.id_usuario) === Number(idUsuario)
     );
 
     if (usuarioYaEsta) {
@@ -656,10 +1036,18 @@ app.get("/partidas/:idPartida/jugadores", async (req, res) => {
               pp.id_partida,
               pp.id_usuario,
               pp.id_club,
+              c.jerarquia AS jerarquia_club,
+              pp.grl,
+              pp.edad,
+              pp.lesionado,
+              pp.lesion_hasta_temporada,
+              pp.id_seleccion,
+              sel.nombre AS nombre_seleccion,
               pp.id_titulo,
               pp.puntos_campeon,
               pp.goles,
               pp.asistencias,
+              pp.partidos_jugados,
               pp.fama,
               pp.plata,
               pp.idolatria,
@@ -667,10 +1055,11 @@ app.get("/partidas/:idPartida/jugadores", async (req, res) => {
               pp.listo,
               pp.posicion_actual,
               pp.turno,
+              pp.nombre_leyenda,
               u.nombre_usuario,
               c.nombre AS nombre_club,
               c.liga,
-              t.nombre AS nombre_titulo
+              COALESCE(t.nombre, ti.nombre, tint.nombre) AS nombre_titulo
         FROM ParticipantePartida pp
         INNER JOIN Usuario u
           ON pp.id_usuario = u.id_usuario
@@ -678,6 +1067,12 @@ app.get("/partidas/:idPartida/jugadores", async (req, res) => {
           ON pp.id_club = c.id_club
         LEFT JOIN Titulo t
           ON pp.id_titulo = t.id_titulo
+        LEFT JOIN TituloIndividual ti
+          ON pp.id_titulo_individual = ti.id_titulo_individual
+        LEFT JOIN TituloInternacional tint
+          ON pp.id_titulo_internacional = tint.id_titulo_internacional
+        LEFT JOIN Seleccion sel
+          ON pp.id_seleccion = sel.id_seleccion
         WHERE pp.id_partida = ${idPartida}`);
 
     return res.status(200).json(jugadores);
@@ -853,6 +1248,7 @@ io.on("connection", (socket) => {
            pp.listo,
            pp.posicion_actual,
            pp.turno,
+           pp.nombre_leyenda,
            u.nombre_usuario
          FROM ParticipantePartida pp
          INNER JOIN Usuario u
@@ -960,15 +1356,24 @@ io.on("connection", (socket) => {
           // Bloqueamos los participantes durante la transacción.
           const jugadores = await query(
             `SELECT
-                        id_participante,
-                        id_usuario,
-                        posicion_actual,
-                        id_seleccion,
-                        turno,
-                        listo,
-                        turnos_pendientes_perdidos
-                     FROM ParticipantePartida
-                     WHERE id_partida = ?
+                        pp.id_participante,
+                        pp.id_usuario,
+                        pp.posicion_actual,
+                        pp.id_seleccion,
+                        pp.id_nacionalidad,
+                        pp.convocatorias,
+                        pp.estado_seleccion,
+                        pp.temporadas_fuera_seleccion,
+                        pp.lesionado,
+                        pp.lesion_hasta_temporada,
+                        pp.grl,
+                        pp.edad,
+                        pp.id_club,
+                        pp.turno,
+                        pp.listo,
+                        pp.turnos_pendientes_perdidos
+                     FROM ParticipantePartida pp
+                     WHERE pp.id_partida = ?
                      FOR UPDATE`,
             [idPartida]
           );
@@ -989,6 +1394,8 @@ io.on("connection", (socket) => {
             };
           }
 
+
+
           if (!jugadores.every((j) => Boolean(j.listo))) {
             return {
               error: "Los dos jugadores deben estar listos."
@@ -1001,12 +1408,20 @@ io.on("connection", (socket) => {
             };
           }
 
-          // Posición actual del jugador en el tablero, usada como
-          // temporada para decidir qué eventos son elegibles.
+          // Posición actual representa la temporada que está por jugar.
           const posicionActual = Math.max(
             1,
             Number(jugador.posicion_actual) || 1
           );
+          const lesionado = Boolean(Number(jugador.lesionado)) &&
+            (jugador.lesion_hasta_temporada == null ||
+             Number(jugador.lesion_hasta_temporada) >= posicionActual);
+          const jugadorContexto = {
+            ...jugador,
+            posicion_actual: posicionActual,
+            lesionado
+          };
+
 
           const rival = jugadores.find(
             (j) => Number(j.id_usuario) !== idUsuario
@@ -1064,40 +1479,112 @@ io.on("connection", (socket) => {
           // de una casilla, no un avance equivalente al número.
           const resultadoDado = Math.floor(Math.random() * 6) + 1;
 
-          // Usamos la posición del tablero como temporada (una posición por turno).
-          // Peso es el peso relativo dentro de los eventos elegibles, no un porcentaje fijo.
-          // Los eventos de Selección se habilitan desde la temporada 5.
+          // ------------------------------------------------------------------
+          // SISTEMA DE EVENTOS (auditoría integral).
+          //
+          // 1. Se obtienen los candidatos (peso > 0, rango de temporadas).
+          // 2. Se descartan los imposibles por CONDICIONES ACTUALES
+          //    (lesión, convocatoria, jerarquía del club, goles, GRL...).
+          // 3. Se validan las DEPENDENCIAS HISTÓRICAS
+          //    (EstadoCarreraEvento + ClubesHistorico).
+          // 4. Se comprueba compatibilidad con el estado del jugador.
+          // 5. Se aplican los pesos contextuales sobre los ELEGIBLES.
+          // 6. Se sortea. Ningún evento imposible entra al sorteo.
+          // ------------------------------------------------------------------
           const eventos = await query(
-            `SELECT
-                        id_evento,
-                        nombre,
-                        descripcion,
-                        categoria,
-                        efecto_fama,
-                        efecto_plata,
-                        efecto_idolatria,
-                        peso,
-                        bloquea_avance,
-                        turnos_perdidos
-                     FROM Evento
-                     WHERE peso > 0
-                       AND NOT (
-                         (LOWER(categoria) IN ('selección', 'seleccion') OR id_evento IN (25, 26, 27, 28, 29, 30))
-                         AND ? < 5
-                       )`,
-            [posicionActual]
+            `SELECT e.id_evento, e.nombre, e.descripcion, e.categoria,
+                    e.efecto_fama, e.efecto_plata, e.efecto_idolatria,
+                    e.peso, e.bloquea_avance, e.turnos_perdidos,
+                    e.requiere_lesion, e.requiere_seleccion,
+                    e.bloquea_si_lesionado, e.cooldown_temporadas,
+                    e.temporada_minima, e.temporada_maxima,
+                    ${esquemaEventos.codigoEvento ? "e.codigo_evento" : "NULL AS codigo_evento"},
+                    ${esquemaEventos.finCarrera ? "e.fin_carrera" : "0 AS fin_carrera"}
+               FROM Evento e
+              WHERE e.peso > 0
+                AND ? >= e.temporada_minima
+                AND (e.temporada_maxima IS NULL OR ? <= e.temporada_maxima)`,
+            [posicionActual, posicionActual]
           );
 
-          if (eventos.length === 0) {
-            return {
-              error: "No hay eventos elegibles con peso mayor a cero para esta etapa."
-            };
+          // El clásico existe si la liga del club tiene más de un club de
+          // alto nivel (jerarquía >= 4): es la señal disponible de que hay
+          // un rival de fútbol grande en la misma liga.
+          let ligaConClasico = false;
+          // Jerarquía del club del jugador: la necesitan los títulos de
+          // temporada y los eventos de cambio de club. Es nula sin contrato.
+          let jerarquiaClub = null;
+          if (jugador.id_club) {
+            const ligaActual = await query(
+              `SELECT liga, jerarquia FROM Club WHERE id_club = ?`,
+              [jugador.id_club]
+            );
+            jerarquiaClub = ligaActual[0]?.jerarquia != null
+              ? Number(ligaActual[0].jerarquia)
+              : null;
+            if (ligaActual[0]?.liga) {
+              const rivales = await query(
+                `SELECT COUNT(*) AS n FROM Club
+                  WHERE liga = ? AND jerarquia >= 4 AND id_club <> ?`,
+                [ligaActual[0].liga, jugador.id_club]
+              );
+              ligaConClasico = Number(rivales[0]?.n) >= 1;
+            }
           }
 
-          const evento = sortearEventoPonderado(eventos);
-          const bloqueaAvance = Boolean(
-            Number(evento.bloquea_avance)
-          );
+          const { evento, contexto } = await generarEvento({
+            query,
+            jugador,
+            posicionActual,
+            eventos,
+            ligaConClasico,
+          });
+
+          // Respaldo: si el nuevo sistema no puede elegir nada (por ejemplo
+          // porque la migración no está aplicada), caemos al modo compatible
+          // con los filtros básicos de la BD, para no cortar la partida.
+          let eventoElegido = evento;
+          if (!eventoElegido) {
+            const basicos = eventos.filter((ev) => {
+              if (Number(ev.requiere_lesion) && !lesionado) return false;
+              if (Number(ev.bloquea_si_lesionado) && lesionado) return false;
+              if (Number(ev.requiere_seleccion) &&
+                  !(jugador.id_seleccion != null && Number(jugador.id_seleccion) > 0)) {
+                return false;
+              }
+              return Number(ev.peso) > 0;
+            });
+            if (basicos.length === 0) {
+              return {
+                error: "No hay eventos elegibles para esta etapa de la carrera."
+              };
+            }
+            eventoElegido = sortearEventoPonderado(basicos);
+          }
+
+          const codigoEvento = eventoElegido.codigo_evento || null;
+          const esEventoFinCarrera =
+            esquemaEventos.finCarrera &&
+            Number(eventoElegido.fin_carrera) === 1;
+
+          // "Muerta": fin de la PARTIDA COMPLETA para ambos jugadores.
+          // Se marca la partida como finalizada DENTRO de la misma
+          // transacción del turno; el socket avisa a la sala al salir.
+          if (esEventoFinCarrera) {
+            await query(
+              `UPDATE Partida
+                  SET estado = 'finalizada',
+                      fecha_fin = COALESCE(fecha_fin, NOW())
+                WHERE id_partida = ?`,
+              [idPartida]
+            );
+          }
+
+          const bloqueaAvance = esEventoFinCarrera
+            ? true // fin de carrera: no avanza más por el tablero
+            : Boolean(
+                Number(eventoElegido.bloquea_avance)
+              );
 
           const nuevaPosicion = bloqueaAvance
             ? posicionActual
@@ -1105,41 +1592,268 @@ io.on("connection", (socket) => {
 
           const turnosPerdidos = Math.max(
             0,
-            Number(evento.turnos_perdidos) || 0
+            Number(eventoElegido.turnos_perdidos) || 0
           );
 
-          const temporada = Math.min(20, Math.max(1, posicionActual));
+          const lesionHasta = Math.max(
+            posicionActual,
+            Number(jugador.lesion_hasta_temporada) || posicionActual
+          );
+          const nombreEventoNormalizado = normalizarTexto(eventoElegido.nombre);
+          const categoriaEvento = normalizarTexto(eventoElegido.categoria);
 
-          const probabilidadGol = Math.min(
-            0.90,
-            0.30 + (temporada - 1) * 0.03
+          // ------------------------------------------------------------------
+          // Lesiones (eventos 1-6, ahora coherentes entre sí):
+          // - Solo las lesiones "nuevas" causan lesión.
+          // - "Recuperación exitosa" limpia el estado (exigía lesión previa,
+          //   validado en generarEvento).
+          // - "Retiro forzado" (antes "Muerta") termina la carrera: el jugador
+          //   queda fuera PERMANENTEMENTE (no vuelve a disputar partidos).
+          // ------------------------------------------------------------------
+          const esRecuperacion = codigoEvento === "lesion_recuperacion" ||
+            (!codigoEvento &&
+              nombreEventoNormalizado.includes("recuperacion exitosa"));
+          const esLesionNueva = codigoEvento
+            ? CODIGOS_LESION_NUEVA.includes(codigoEvento)
+            : (categoriaEvento === "lesion" && !esRecuperacion &&
+               !nombreEventoNormalizado.includes("muerta"));
+          const eventoCausaLesion = esLesionNueva;
+          const lesionNuevoEstado = esEventoFinCarrera
+            ? true
+            : esRecuperacion
+              ? false
+              : (lesionado || eventoCausaLesion);
+          const lesionNuevaHasta = esEventoFinCarrera
+            ? 99 // fuera de carrera: nunca vuelve a estar habilitado
+            : esRecuperacion
+              ? null
+              : eventoCausaLesion
+                ? Math.max(lesionHasta, posicionActual + 1)
+                : lesionado
+                  ? jugador.lesion_hasta_temporada
+                  : null;
+
+          // ------------------------------------------------------------------
+          // Selección nacional (eventos 25-30 + puerta de entrada).
+          // Estados: nunca / convocado / suplente / titular / fuera.
+          // - Los eventos de convocatoria (Heredás la N°10, Titular, Regreso)
+          //   activan la convocatoria y suman una convocatoria al historial
+          //   (solo si antes no estaba convocado: no se duplican).
+          // - "Quedás fuera de la lista" pasa el estado a 'fuera'.
+          // - Gol/Figura internacional NO cambian el estado: ya participó.
+          // ------------------------------------------------------------------
+          const esEventoSeleccionNegativo = codigoEvento
+            ? codigoEvento === "seleccion_fuera_lista"
+            : /quedas fuera de la lista/.test(nombreEventoNormalizado);
+          const esEventoConvocatoria = codigoEvento
+            ? CODIGOS_CONVOCATORIA.includes(codigoEvento)
+            : (categoriaEvento === "seleccion" && !esEventoSeleccionNegativo &&
+               !/gol internacional|figura internacional/.test(nombreEventoNormalizado));
+
+          const estadoSeleccionAnterior = contexto
+            ? contexto.estadoSeleccion
+            : "nunca";
+          let nuevoEstadoSeleccion = estadoSeleccionAnterior;
+          if (esEventoSeleccionNegativo) {
+            nuevoEstadoSeleccion = "fuera";
+          } else if (esEventoConvocatoria) {
+            // Regreso y Primera convocatoria: arrancás 'convocado' (el
+            // propio evento te dice que disputaste la Fecha FIFA);
+            // Heredás la N°10 / Titular: pasás directo a 'titular'.
+            nuevoEstadoSeleccion =
+              codigoEvento === "seleccion_regreso" ||
+              codigoEvento === "seleccion_primera_convocatoria"
+                ? "convocado"
+                : "titular";
+          }
+
+          const estabaConvocado =
+            ESTADOS_CONVOCADO.includes(estadoSeleccionAnterior);
+          const convocatoriaNueva = esEventoConvocatoria && !estabaConvocado;
+
+          // La convocatoria apunta a la NACIONALIDAD del jugador (no a la
+          // liga del club): sin nacionalidad no hay Selección posible.
+          let nuevaIdSeleccion = jugador.id_seleccion;
+          if (esEventoSeleccionNegativo) {
+            // Deja de ser convocado; la nacionalidad se conserva aparte.
+            nuevaIdSeleccion = esquemaEventos.contexto
+              ? (contexto?.idNacionalidad ?? jugador.id_seleccion)
+              : null;
+          } else if (esEventoConvocatoria) {
+            nuevaIdSeleccion = esquemaEventos.contexto
+              ? (contexto?.idNacionalidad ?? 1)
+              : 1; // modo compatible: convocatoria genérica
+          }
+
+          // Cada turno representa una temporada completa de liga.
+          // Un campeonato realista ronda los 30-38 partidos.
+          const PARTIDOS_POR_TEMPORADA = 34;
+
+          // Lesión preexistente o nueva: se pierde una parte importante
+          // de la temporada. La recuperación implica volver a mitad de año.
+          // FIN DE CARRERA: el jugador NO disputa más partidos; la temporada
+          // queda en cero (no genera goles, asistencias ni rendimiento).
+          const lesionGrave = eventoCausaLesion || lesionado;
+          const partidosJugadosTemporada = esEventoFinCarrera
+            ? 0
+            : esRecuperacion
+            ? PARTIDOS_POR_TEMPORADA - Math.floor(Math.random() * 10) - 10
+            : lesionGrave
+              ? Math.max(1, Math.floor(Math.random() * 10) + 3)
+              : PARTIDOS_POR_TEMPORADA - Math.floor(Math.random() * 8);
+
+          // El GRL y la etapa de la carrera definen cuánto aporta
+          // el jugador por partido (goles y asistencias esperadas).
+          const grlJugador = Math.min(99, Math.max(1, Number(jugador.grl) || 1));
+
+          // Curva de edad futbolera: arranca en 18, pico entre 25 y 28,
+          // y desciende suavemente hacia el retiro (38).
+          const edad = Math.max(18, Number(jugador.edad) || 18);
+          const edadPico = 26;
+          const factorEdad = edad <= edadPico
+            // Juvenil: sube desde 0.60 a 1.00 entre los 18 y los 26.
+            ? 0.60 + (edad - 18) * (0.40 / (edadPico - 18))
+            // Veterano: baja desde 1.00 a 0.55 entre los 26 y los 38.
+            : Math.max(0.55, 1.0 - (edad - edadPico) * 0.037);
+
+          // Excepcional: GRL alto + veterano conserva parte del pico
+          // (los grandes siguen rindiendo hasta los 33-34).
+          const factorEdadFinal = grlJugador >= 80 && edad > edadPico
+            ? Math.min(1, factorEdad + 0.15)
+            : factorEdad;
+
+          const golesEsperadosPorPartido = Math.min(
+            1.4,
+            (0.10 + grlJugador * 0.008) * factorEdadFinal
+          );
+          const asistenciasEsperadasPorPartido = Math.min(
+            0.6,
+            (0.06 + grlJugador * 0.004) * (0.8 + 0.2 * factorEdadFinal)
           );
 
-          const probabilidadAsistencia = Math.min(
-            0.85,
-            0.35 + (temporada - 1) * 0.025
-          ); 
-          // Cada oportunidad se calcula de forma independiente.
-          const golesNuevos =
-            (Math.random() < probabilidadGol ? 1 : 0) +
-            (temporada >= 5 && Math.random() < probabilidadGol * 0.35 ? 1 : 0);
+          // Distribución de Poisson (aproximación de Knuth): modela
+          // de forma realista cuántos goles/asistencias surgen de
+          // los partidos disputados en la temporada.
+          const samplePoisson = (media) => {
+            const l = Math.exp(-media);
+            let k = 0;
+            let p = 1;
+            do {
+              k++;
+              p *= Math.random();
+            } while (p > l);
+            return k - 1;
+          };
 
-          const asistenciasNuevas =
-            (Math.random() < probabilidadAsistencia ? 1 : 0) +
-            (temporada >= 5 && Math.random() < probabilidadAsistencia * 0.30 ? 1 : 0);
-
-          const notaBase = 5 + Math.random() * 2;
-
-          const notaRendimiento = Math.min(
-            10,
-            Number(
-              (
-                notaBase +
-                golesNuevos * 2 +
-                asistenciasNuevas * 1.5
-              ).toFixed(1)
-            )
+          const golesNuevos = Math.min(
+            partidosJugadosTemporada * 3,
+            samplePoisson(Math.max(0.01, partidosJugadosTemporada * golesEsperadosPorPartido))
           );
+          const asistenciasNuevas = Math.min(
+            partidosJugadosTemporada * 2,
+            samplePoisson(Math.max(0.01, partidosJugadosTemporada * asistenciasEsperadasPorPartido))
+          );
+
+          // Evolución de la media (GRL), estilo "El Ídolo" de Potrero:
+          // - Joven (hasta 25): crece fuerte, 2 a 3.5 por temporada.
+          // - Pico (26-29): crece moderado, 0.5 a 1.5.
+          // - Veterano (30+): declive físico, 1 a 2 por temporada.
+          // Goles y asistencias suman por encima de eso: mejor temporada,
+          // más media (+ media + goles + asistencias, todo suma).
+          // Los eventos ajustan según su fama, y la lesión castiga 1 a 3
+          // según su gravedad.
+          const mediaBase =
+            edad < 26
+              ? 2 + Math.random() * 1.5
+              : edad <= 29
+                ? 0.5 + Math.random() * 1
+                : -(1 + Math.random());
+          const mediaPorRendimiento =
+            golesNuevos * 0.08 + asistenciasNuevas * 0.04;
+          let cambioGRL = mediaBase + mediaPorRendimiento;
+
+          if (eventoCausaLesion) {
+            // Gravedad por fama negativa del evento de lesión.
+            const famaLesion = Number(eventoElegido.efecto_fama) || 0;
+            const gravedad = famaLesion <= -20 ? 3 : famaLesion <= -10 ? 2 : 1;
+            cambioGRL -= gravedad;
+          } else if (esRecuperacion) {
+            cambioGRL += 1;
+          } else if (categoriaEvento === "positivo" || categoriaEvento === "seleccion") {
+            const famaEvento = Number(eventoElegido.efecto_fama) || 0;
+            cambioGRL += famaEvento >= 25 ? 1 : famaEvento >= 15 ? 0.5 : 0;
+          } else if (categoriaEvento === "negativo" || categoriaEvento === "aleatorio") {
+            const famaEvento = Number(eventoElegido.efecto_fama) || 0;
+            cambioGRL -= famaEvento <= -15 ? 0.5 : 0;
+          }
+
+          cambioGRL = Math.round(cambioGRL * 10) / 10;
+
+          // ------------------------------------------------------------------
+          // NOTA DE LA TEMPORADA.
+          //
+          // Modelo "estilo rating de prensa" (inspirado en SofaScore /
+          // WhoScored: base fija + ajustes por hechos, ver docs README):
+          //
+          //  1) BASE FIJA 5.5: como la base 6.5 de SofaScore o el 6.0 de
+          //     WhoScored, pero calibrada para una temporada completa donde
+          //     el promedio liguero ronda el aprobado. Es el punto de
+          //     partida ANTES de mirar nada, independiente del GRL.
+          //  2) AJUSTE POR VOLUMEN OFENSIVO: lo que de verdad mueve la
+          //     aguja es la contribución G+A POR PARTIDO. Pesamos
+          //     asistencias algo menos que goles (en la mayoría de los
+          //     modelos de rating una asistencia vale ~60-70% de un gol).
+          //  3) NIVEL: un crack sostiene una nota más alta aunque rinda
+          //     "lo esperado" (como la base 6.5 que nunca baja de piso
+          //     para un titular de Selección). Es un ajuste chico, no el
+          //     driver.
+          //  4) DISPONIBILIDAD: jugar importa. Los modelos profesionales
+          //     ponderan por minutos; acá, por partidos sobre 34. No
+          //     castigamos el rendimiento: achicamos el techo.
+          //  5) FORMA: variación acotada ±0.3.
+          // ------------------------------------------------------------------
+
+          // Un jugador que no disputó la temporada no puede sacarse nota:
+          // fin de carrera o lesión que lo dejó sin partidos.
+          const sinTemporada =
+            esEventoFinCarrera || partidosJugadosTemporada <= 0;
+
+          // Volumen ofensivo por partido (0.0 = temporada sin aporte).
+          const gaPorPartido = partidosJugadosTemporada > 0
+            ? (golesNuevos + 0.65 * asistenciasNuevas) /
+              partidosJugadosTemporada
+            : 0;
+
+          // Curva: 0.00 -> 5.5 | 0.30 -> ~6.3 | 0.60 -> ~7.1 |
+          // 0.90 -> ~7.9 | 1.20+ -> 8.7+ (nivel crack: ~0.9-1.2 G+A/90).
+          // Saturación: más de ~1.4 por partido casi no suma más.
+          const ajusteVolumen = Math.min(3.2, 2.7 * Math.pow(gaPorPartido, 0.85));
+
+          // Ajuste por nivel: hasta ±0.5, nunca decide solo.
+          const ajusteNivel = Math.max(
+            -0.5,
+            Math.min(0.5, (grlJugador - 70) * 0.02)
+          );
+
+          // Techo por disponibilidad: temporada completa = 1.0;
+          // media temporada baja el techo ~1.2; lesión grave, ~2.
+          const factorDisponibilidad = partidosJugadosTemporada /
+            PARTIDOS_POR_TEMPORADA;
+          const techoPorPartidos =
+            4.5 + 3.0 * Math.min(1, Math.pow(factorDisponibilidad, 0.7)) +
+            (gaPorPartido > 0 ? 1.0 : 0);
+
+          const notaCruda = 5.5 + ajusteVolumen * 0.75 + ajusteNivel;
+
+          // Forma: ±0.3 como mucho (nunca cambia el sentido de la nota).
+          const forma = (Math.random() - 0.5) * 0.6;
+
+          const notaRendimiento = sinTemporada
+            ? 3.0
+            : Math.round(Math.max(
+                3.0,
+                Math.min(10, Math.min(techoPorPartidos, notaCruda) + forma)
+              ) * 10) / 10;
 
           // Actualizamos posición, estadísticas y turnos pendientes.
 
@@ -1152,36 +1866,455 @@ io.on("connection", (socket) => {
         idolatria = GREATEST(0, idolatria + ?),
         goles = COALESCE(goles, 0) + ?,
         asistencias = COALESCE(asistencias, 0) + ?,
+        partidos_jugados = COALESCE(partidos_jugados, 0) + ?,
         turnos_pendientes_perdidos =
-            turnos_pendientes_perdidos + ?
+            turnos_pendientes_perdidos + ?,
+        lesionado = ?,
+        lesion_hasta_temporada = ?,
+        edad = ?,
+        id_seleccion = ?,
+        grl = LEAST(99, GREATEST(1, grl + ?)),
+        grl_maxima = GREATEST(
+            COALESCE(grl_maxima, 0),
+            LEAST(99, GREATEST(1, grl + ?))
+        )
      WHERE id_partida = ?
        AND id_usuario = ?`,
             [
               nuevaPosicion,
-              Number(evento.efecto_fama) || 0,
-              Number(evento.efecto_plata) || 0,
-              Number(evento.efecto_idolatria) || 0,
+              Number(eventoElegido.efecto_fama) || 0,
+              Number(eventoElegido.efecto_plata) || 0,
+              Number(eventoElegido.efecto_idolatria) || 0,
               golesNuevos,
               asistenciasNuevas,
+              partidosJugadosTemporada,
               turnosPerdidos,
+              Number(lesionNuevoEstado),
+              lesionNuevaHasta,
+              18 + nuevaPosicion - 1,
+              nuevaIdSeleccion,
+              cambioGRL,
+              cambioGRL,
               idPartida,
               idUsuario
             ]
           );
 
-          // Registramos el evento en el historial.
+          // ------------------------------------------------------------------
+          // TÍTULOS DE LA TEMPORADA.
+          //
+          // Coherencia futbolística (auditoría):
+          // - Si el jugador está lesionado grave o FUERA DE CARRERA, no
+          //   disputó la temporada: no gana títulos (ni colectivos ni
+          //   individuales) y no convierte goles.
+          // - El continente del CLUB sale de Club.continente (la
+          //   confederación del club decide qué copa puede disputar;
+          //   un club sudamericano no gana la Champions).
+          // - Para los torneos de SELECCIONES: solo si el jugador estuvo
+          //   realmente convocado y jugó (estado titular/suplente/convocado,
+          //   sin lesión); un Mundial exige haber sido convocado.
+          // ------------------------------------------------------------------
+          const pudoDisputarTemporada =
+            !esEventoFinCarrera && partidosJugadosTemporada > 0;
+
+          let nombreSeleccion = null;
+          let continenteSeleccion = null;
+          let paisClubJugador = null;
+          let continenteClubJugador = null;
+          if (jugador.id_club) {
+            const datosClub = await query(
+              `SELECT liga, continente FROM Club WHERE id_club = ?`,
+              [jugador.id_club]
+            );
+            paisClubJugador = datosClub[0]?.liga || null;
+            continenteClubJugador = datosClub[0]?.continente || null;
+          }
+          if (nuevaIdSeleccion != null && Number(nuevaIdSeleccion) > 0) {
+            const datosSeleccion = await query(
+              `SELECT nombre FROM Seleccion WHERE id_seleccion = ?`,
+              [nuevaIdSeleccion]
+            );
+            nombreSeleccion = datosSeleccion[0]?.nombre || null;
+
+            if (nombreSeleccion) {
+              // El país de la selección se mapea a la liga del Club
+              // (misma convención de nombres) para sacar el continente
+              // desde la propia tabla de torneos: usamos el país tal cual
+              // y normalizamos contra los continentes conocidos.
+              const mapaContinentes = {
+                // Claves SIN acentos: la búsqueda se hace sobre el texto
+                // normalizado (normalizarTexto quita tildes). Con claves
+                // acentuadas ("españa", "méxico"...) la búsqueda fallaba
+                // y continenteSeleccion quedaba en null, dejando sin título
+                // continental a media selección del juego (auditado).
+                "argentina": "América del Sur",
+                "brasil": "América del Sur",
+                "inglaterra": "Europa",
+                "espana": "Europa",
+                "italia": "Europa",
+                "alemania": "Europa",
+                "francia": "Europa",
+                "paises bajos": "Europa",
+                "portugal": "Europa",
+                "turquia": "Europa",
+                "escocia": "Europa",
+                "belgica": "Europa",
+                "suiza": "Europa",
+                "austria": "Europa",
+                "mexico": "América del Norte",
+                "estados unidos": "América del Norte",
+                "arabia saudita": "Asia",
+                "japon": "Asia"
+              };
+              continenteSeleccion =
+                mapaContinentes[normalizarTexto(nombreSeleccion)] || null;
+            }
+          }
+
+          // Títulos colectivos ya ganados por el RIVAL en esta carrera:
+          // alimenta la regla "un solo campeón por liga compartida".
+          let titulosColectivosRival = [];
+          const participanteRival = (jugadores || []).find(
+            (j) => Number(j.id_participante) !== Number(jugador.id_participante)
+          );
+          let ligaRival = null;
+          if (participanteRival?.id_club) {
+            const clubRival = await query(
+              `SELECT liga FROM Club WHERE id_club = ?`,
+              [participanteRival.id_club]
+            );
+            ligaRival = clubRival[0]?.liga || null;
+          }
+          if (participanteRival && ligaRival) {
+            titulosColectivosRival = await query(
+              `SELECT t.id_titulo, t.nombre, t.pais
+                 FROM TituloGanado tg
+                 JOIN Titulo t ON t.id_titulo = tg.id_titulo
+                WHERE tg.id_participante = ?
+                  AND tg.id_titulo IS NOT NULL`,
+              [participanteRival.id_participante]
+            );
+          }
+
+          // Participación real en torneos de selecciones: convocado y sin
+          // lesión que lo dejara fuera (condición actual de la temporada).
+          const jugoConLaSeleccion =
+            pudoDisputarTemporada &&
+            nuevaIdSeleccion != null &&
+            Number(nuevaIdSeleccion) > 0 &&
+            ESTADOS_CONVOCADO.includes(nuevoEstadoSeleccion === "fuera"
+              ? estadoSeleccionAnterior
+              : nuevoEstadoSeleccion) &&
+            // Si el evento de ESTA temporada lo dejó fuera de la lista, no
+            // jugó con la Selección.
+            !esEventoSeleccionNegativo;
+
+          const titulosGanados = await procesarTitulosTemporada({
+            idParticipante: jugador.id_participante,
+            idClub: jugador.id_club,
+            jerarquiaClub: jerarquiaClub,
+            notaRendimiento,
+            golesNuevos,
+            asistenciasNuevas,
+            partidosJugadosTemporada,
+            temporada: nuevaPosicion,
+            idSeleccion: jugoConLaSeleccion ? nuevaIdSeleccion : null,
+            nombreSeleccion: jugoConLaSeleccion ? nombreSeleccion : null,
+            continenteSeleccion: jugoConLaSeleccion
+              ? continenteSeleccion
+              : null,
+            edad: 18 + nuevaPosicion - 1,
+            paisClub: paisClubJugador,
+            continenteClub: continenteClubJugador,
+            pudoDisputarTemporada,
+            // Coherencia entre jugadores: si el rival juega en la MISMA liga
+            // y ya salió campeón de esa liga en esta carrera, no puede
+            // haber dos campeones de la misma liga el mismo año.
+            titulosColectivosRival,
+            jugadorRivalId: participanteRival?.id_participante ?? null,
+            query
+          });
+
+          // El último título de cada tipo queda en ParticipantePartida
+          // para mostrarlo en el panel del jugador.
+          for (const tituloGanado of titulosGanados) {
+            if (tituloGanado.tipo === "colectivo") {
+              await query(
+                `UPDATE ParticipantePartida
+                    SET id_titulo = ?
+                  WHERE id_participante = ?`,
+                [tituloGanado.id_titulo, jugador.id_participante]
+              );
+            } else if (tituloGanado.tipo === "internacional") {
+              await query(
+                `UPDATE ParticipantePartida
+                    SET id_titulo_internacional = ?
+                  WHERE id_participante = ?`,
+                [tituloGanado.id_titulo_internacional,
+                  jugador.id_participante]
+              );
+            } else if (tituloGanado.tipo === "individual") {
+              await query(
+                `UPDATE ParticipantePartida
+                    SET id_titulo_individual = ?
+                  WHERE id_participante = ?`,
+                [tituloGanado.id_titulo_individual,
+                  jugador.id_participante]
+              );
+            }
+          }
+
+          // ------------------------------------------------------------------
+          // REGISTRO CONSISTENTE DEL EVENTO (dentro de la misma transacción
+          // del turno: si algo falla, nada se aplica parcialmente).
+          //
+          // - EstadoCarreraEvento: SIEMPRE se registra el evento ocurrido
+          //   (es el historial que alimenta cooldown y dependencias).
+          // - EventoPartida: registro de los eventos que efectivamente
+          //   sucedieron durante la partida (con semilla reproducible).
+          // ------------------------------------------------------------------
           await query(
-            `INSERT INTO HistorialEvento
-                        (id_participante, id_evento, posicion)
+            `INSERT INTO EstadoCarreraEvento
+                        (id_participante, id_evento, temporada)
                      VALUES (?, ?, ?)`,
-            [
-              jugador.id_participante,
-              evento.id_evento,
-              nuevaPosicion
-            ]
+            [jugador.id_participante, eventoElegido.id_evento, posicionActual]
           );
 
+          try {
+            // Semilla reproducible: la misma tirada de dado + contexto
+            // genera siempre el mismo evento (auditoría de partidas).
+            const semilla = Math.floor(Math.random() * 2147483647);
+            await query(
+              `INSERT INTO EventoPartida
+                          (id_partida, id_usuario, id_evento, id_casillero,
+                           semilla, fecha)
+                       VALUES (?, ?, ?, ?, ?, NOW())`,
+              [idPartida, idUsuario, eventoElegido.id_evento,
+               Math.min(20, Math.max(1, nuevaPosicion)), semilla]
+            );
+          } catch (error) {
+            // Si la tabla no tiene la fila del casillero correspondiente,
+            // no interrumpimos el turno por el registro histórico.
+            const esErrorCasilleroInexistente =
+              /fk_eventopartida_casillero|foreign key/i.test(error.message);
+            if (!esErrorCasilleroInexistente) {
+              throw error;
+            }
+            // Fallback: usamos cualquier casillero existente. Si la tabla
+            // Casillero está vacía (MIN devuelve NULL y el INSERT fallaría
+            // con "id_casillero cannot be null"), simplemente se omite el
+            // registro: la partida sigue igual.
+            const casilleros = await query(
+              `SELECT MIN(id_casillero) AS id_casillero FROM Casillero`
+            );
+            const idCasilleroRespaldo = casilleros[0]?.id_casillero;
+            if (idCasilleroRespaldo != null) {
+              try {
+                await query(
+                  `INSERT INTO EventoPartida
+                              (id_partida, id_usuario, id_evento, id_casillero,
+                               semilla, fecha)
+                           VALUES (?, ?, ?, ?, ?, NOW())`,
+                  [idPartida, idUsuario, eventoElegido.id_evento,
+                   idCasilleroRespaldo,
+                   Math.floor(Math.random() * 2147483647)]
+                );
+              } catch (errorInterno) {
+                if (!/EventoPartida|doesn't exist|does not exist/i.test(errorInterno.message)) {
+                  throw errorInterno;
+                }
+              }
+            }
+          }
+
+          // Historial de clubes: al recalar en un club nuevo, cerramos la
+          // etapa anterior y abrimos la nueva (base de "Vuelta a casa").
+          // El propio evento de cambio de club se encarga del cambio real.
+          // El UPDATE de ParticipantePartida de arriba mantiene id_club = ?
+          // sin tocar; el cambio de club es un paso EXPLICITO del jugador.
+
+          // Estado de Selección y convocatorias (si el esquema lo soporta).
+          if (esquemaEventos.contexto) {
+            await query(
+              `UPDATE ParticipantePartida
+                  SET convocatorias = convocatorias + ?,
+                      estado_seleccion = ?,
+                      temporadas_fuera_seleccion = CASE
+                        WHEN ? = 'fuera' THEN temporadas_fuera_seleccion + 1
+                        WHEN ? IN ('convocado','suplente','titular') THEN 0
+                        ELSE temporadas_fuera_seleccion
+                      END
+                WHERE id_participante = ?`,
+              [convocatoriaNueva ? 1 : 0,
+               nuevoEstadoSeleccion,
+               nuevoEstadoSeleccion,
+               nuevoEstadoSeleccion,
+               jugador.id_participante]
+            );
+          }
+
           await cambiarTurno();
+
+          // Fin de la carrera: al llegar al casillero 20 (última
+          // temporada) se cierra la partida, se define el ganador y se
+          // guarda el resultado para la pantalla final y el ranking.
+          let partidaFinalizada = false;
+          let ganadorFinal = null;
+
+          if (nuevaPosicion >= CASILLERO_FINAL) {
+            const resultadoFinal = await finalizarPartida(
+              query,
+              idPartida
+            );
+            partidaFinalizada = true;
+            ganadorFinal = resultadoFinal.ganador;
+          }
+
+          // Eventos de cambio de club: generamos 3 opciones con la
+          // misma jerarquía (o la indicada por el evento) para que
+          // el jugador elija su nuevo equipo.
+          let opcionesCambioClub = null;
+          let jerarquiaObjetivo = null;
+          const nombreEventoCambio = normalizarTexto(eventoElegido.nombre);
+          const codigoEventoCambio = codigoEvento;
+          const esCambioDeClub = codigoEvento
+            ? CODIGOS_CAMBIO_CLUB.includes(codigoEvento)
+            : normalizarTexto(eventoElegido.categoria) === "cambio de club";
+
+          // FIN DE CARRERA: no hay cambio de club ni opciones (el jugador
+          // ya no puede firmar con nadie).
+          if (esCambioDeClub && !esEventoFinCarrera) {
+            // Regla futbolera: el destino depende del tipo de evento.
+            // - Rescisión / préstamo / vuelta a casa: te quedás en tu nivel.
+            // - Oferta de Primera / transferencia internacional: te suben un nivel.
+            // - Venta inesperada: bajás un nivel (te vende un club más chico).
+            const jerarquiaActual = Number(jerarquiaClub) || 1;
+            let jerarquiaDestino = jerarquiaActual;
+            let destinoInternacional = false;
+
+            if (codigoEvento === "club_oferta_primera" ||
+                codigoEvento === "club_transferencia_intl" ||
+                /oferta de primera|transferencia internacional/.test(nombreEventoCambio)) {
+              jerarquiaDestino = Math.min(5, jerarquiaActual + 1);
+              destinoInternacional = codigoEvento === "club_transferencia_intl" ||
+                /transferencia internacional/.test(nombreEventoCambio);
+            } else if (codigoEvento === "club_venta" ||
+                       /venta inesperada/.test(nombreEventoCambio)) {
+              jerarquiaDestino = Math.max(1, jerarquiaActual - 1);
+            }
+
+            jerarquiaObjetivo = jerarquiaDestino;
+
+            // TODOS los clubes candidatos, excluyendo el actual.
+            // - Transferencia internacional: SOLO clubes de otro país
+            //   (si el club actual no tiene continente cargado, se excluyen
+            //   los de la misma liga).
+            // - Vuelta a casa: SOLO los clubes en los que ya jugó
+            //   (validación contra el historial real de la carrera).
+            // Clubes de los RIVALES de la partida: no se ofrecen como
+            // destino (el rival juega ahí; fichar por su club es una
+            // incongruencia, sobre todo en la misma liga).
+            const rivales = (jugadores || []).filter(
+              (j) => Number(j.id_participante) !== Number(jugador.id_participante)
+            );
+            const idsClubesRivales = rivales
+              .map((j) => Number(j.id_club))
+              .filter((id) => Number.isInteger(id) && id > 0);
+            const excluidosRivales = idsClubesRivales.length > 0
+              ? `AND id_club NOT IN (${idsClubesRivales.map(() => "?").join(",")})`
+              : "";
+            const paramsRivales = idsClubesRivales;
+
+            let candidatos = [];
+
+            if (codigoEvento === "club_vuelta_casa" && esquemaEventos.clubesHistorico) {
+              candidatos = await query(
+                `SELECT c.id_club, c.nombre, c.liga, c.jerarquia
+                   FROM ClubesHistorico ch
+                   JOIN Club c ON c.id_club = ch.id_club
+                  WHERE ch.id_participante = ?
+                    AND ch.temporada_fin IS NOT NULL
+                    AND c.id_club <> ?`,
+                [jugador.id_participante, jugador.id_club || 0]
+              );
+              // El club actual del RIVAL tampoco es un "hogar" válido.
+              if (idsClubesRivales.length > 0 && candidatos && candidatos.length > 0) {
+                candidatos = candidatos.filter(
+                (c) => !idsClubesRivales.includes(Number(c.id_club))
+                );
+              }
+              // Fallback: si el historial está vacío (partidas viejas),
+              // permitimos clubes de la misma liga y jerarquía igual o
+              // menor (un "regreso" coherente con la carrera).
+              if (!candidatos || candidatos.length === 0) {
+                candidatos = await query(
+                  `SELECT id_club, nombre, liga, jerarquia
+                     FROM Club
+                 WHERE jerarquia <= ?
+                   AND id_club <> ?
+                   AND id_club NOT IN (
+                        SELECT id_club FROM ParticipantePartida WHERE id_partida = ? AND id_club IS NOT NULL
+                   )`,
+                 [jerarquiaDestino, jugador.id_club || 0, idPartida]
+                );
+              }
+            } else {
+              const filtroPais = destinoInternacional
+               ? `AND liga <> (SELECT liga FROM Club WHERE id_club = ?)`
+               : ``;
+              const paramsPais = destinoInternacional
+                ? [jugador.id_club]
+                : [];
+              candidatos = await query(
+                `SELECT id_club, nombre, liga, jerarquia
+                   FROM Club
+                  WHERE jerarquia = ?
+                    AND id_club <> ?
+                    ${filtroPais}
+                    ${excluidosRivales}`,
+                [jerarquiaDestino, jugador.id_club || 0, ...paramsPais, ...paramsRivales]
+              );
+            }
+
+            const barajados = (candidatos || []).sort(() => Math.random() - 0.5);
+            opcionesCambioClub = barajados.slice(0, 3);
+
+            // Si no hay 3 clubes distintos en esa jerarquía, completamos
+            // con clubes de la jerarquía vecina más cercana.
+            if (opcionesCambioClub.length < 3) {
+              const yaPropuestos = opcionesCambioClub.map(
+                (c) => Number(c.id_club)
+              );
+              const extras = await query(
+                `SELECT id_club, nombre, liga, jerarquia
+                   FROM Club
+                 WHERE jerarquia <> ?
+                  AND id_club <> ?
+                  ${destinoInternacional ? "AND liga <> (SELECT liga FROM Club c2 WHERE c2.id_club = ?)" : ""}
+                  ${excluidosRivales}
+                  ORDER BY ABS(jerarquia - ?) ASC, RAND() ASC
+                  LIMIT ?`,
+                destinoInternacional
+                  ? [jerarquiaDestino, jugador.id_club || 0, jugador.id_club,
+                     ...paramsRivales, jerarquiaDestino, 3 - opcionesCambioClub.length]
+                  : [jerarquiaDestino, jugador.id_club || 0,
+                     ...paramsRivales, jerarquiaDestino, 3 - opcionesCambioClub.length]
+              );
+              opcionesCambioClub = [
+                ...opcionesCambioClub,
+                ...(extras || []).filter(
+                  (c) => !yaPropuestos.includes(Number(c.id_club))
+                ),
+              ].slice(0, 3);
+            }
+
+            // Sin destinos posibles, el evento no puede cumplirse:
+            // no se ofrece un cambio de club imposible.
+            if (!opcionesCambioClub || opcionesCambioClub.length === 0) {
+              opcionesCambioClub = null;
+              jerarquiaObjetivo = null;
+            }
+          }
 
           const jugadoresActualizados = await obtenerJugadores(
             query,
@@ -1196,23 +2329,39 @@ io.on("connection", (socket) => {
             rendimiento: {
               goles: golesNuevos,
               asistencias: asistenciasNuevas,
-              nota: notaRendimiento
+              partidos: partidosJugadosTemporada,
+              partidosTemporadaCompleta: PARTIDOS_POR_TEMPORADA,
+              // Con pocos partidos (lesión, fin de carrera) la nota ya
+              // viene castigada: el popup lo explica al jugador.
+              sinTemporada,
+              nota: notaRendimiento,
+              titulos: titulosGanados
             },
 
             jugadores: jugadoresActualizados,
 
             evento: {
-              id_evento: evento.id_evento,
-              nombre: evento.nombre,
-              descripcion: evento.descripcion,
-              categoria: evento.categoria,
-              efecto_fama: Number(evento.efecto_fama) || 0,
-              efecto_plata: Number(evento.efecto_plata) || 0,
-              efecto_idolatria: Number(evento.efecto_idolatria) || 0,
+              id_evento: eventoElegido.id_evento,
+              nombre: eventoElegido.nombre,
+              descripcion: eventoElegido.descripcion,
+              categoria: eventoElegido.categoria,
+              efecto_fama: Number(eventoElegido.efecto_fama) || 0,
+              efecto_plata: Number(eventoElegido.efecto_plata) || 0,
+              efecto_idolatria: Number(eventoElegido.efecto_idolatria) || 0,
               bloquea_avance: bloqueaAvance,
               turnos_perdidos: turnosPerdidos,
-              posicion_resultante: nuevaPosicion
+              posicion_resultante: nuevaPosicion,
+              // "Muerta": la partida entera termina para los dos jugadores.
+              fin_partida: esEventoFinCarrera,
+              cambioClub: opcionesCambioClub
+                ? {
+                    jerarquiaObjetivo,
+                    opciones: opcionesCambioClub
+                  }
+                : null
             },
+            partidaFinalizada,
+            ganador: ganadorFinal,
             turnoPerdido: false
           };
         }
@@ -1237,6 +2386,71 @@ io.on("connection", (socket) => {
 
       socket.emit("estadoPartidaActualizado", resultadoTurno);
 
+      // Si algún título de la temporada quedó en disputa (minijuego contra
+      // el rival), avisamos a la sala para que arranque el duelo.
+      // Si la partida ya terminó (temporada 20), el duelo no tiene lugar:
+      // el título se confirma tal cual.
+      const titulosEnDuelo = (resultadoTurno.rendimiento?.titulos || [])
+        .filter((t) => t.estado_duelo === "pendiente");
+
+      if (titulosEnDuelo.length > 0 && resultadoTurno.partidaFinalizada) {
+        const tituloPendiente = titulosEnDuelo[0];
+        const filasPendientes = await mysql.realizarQuery(
+          `SELECT tg.id_titulo_ganado
+             FROM TituloGanado tg
+            WHERE tg.id_participante = ?
+              AND tg.temporada = ?
+              AND tg.estado = 'pendiente_duelo'
+            ORDER BY tg.id_titulo_ganado DESC
+            LIMIT 1`,
+          [resultadoTurno.idParticipanteQueJugo, tituloPendiente.temporada]
+        );
+        if (filasPendientes?.length > 0) {
+          await mysql.realizarQuery(
+            `UPDATE TituloGanado
+                SET estado = 'ganado', puntos_obtenidos = ?
+              WHERE id_titulo_ganado = ?`,
+            [Number(tituloPendiente.puntos_campeon) || 0,
+             filasPendientes[0].id_titulo_ganado]
+          );
+          await mysql.realizarQuery(
+            `UPDATE ParticipantePartida
+                SET puntos_campeon = COALESCE(puntos_campeon, 0) + ?
+              WHERE id_participante = ?`,
+            [Number(tituloPendiente.puntos_campeon) || 0,
+             resultadoTurno.idParticipanteQueJugo]
+          );
+        }
+      }
+
+      if (titulosEnDuelo.length > 0 && !resultadoTurno.partidaFinalizada) {
+        io.to(`partida_${idPartida}`).emit("tituloDisputado", {
+          idPartida,
+          idParticipante: resultadoTurno.idParticipanteQueJugo,
+          titulo: titulosEnDuelo[0]
+        });
+      }
+
+      // Si alguien llegó al final, avisamos a toda la sala para que
+      // ambos clientes pasen a la pantalla de resultados.
+      if (resultadoTurno.partidaFinalizada) {
+        io.to(`partida_${idPartida}`).emit("partidaFinalizada", {
+          idPartida,
+          ganador: resultadoTurno.ganador
+        });
+      }
+
+      // "Muerta" (fin de carrera): la partida terminó para ambos. Se avisa
+      // a TODA la sala con el evento visible (incluido el rival).
+      if (evento?.fin_partida) {
+        io.to(`partida_${idPartida}`).emit("partidaFinalizada", {
+          idPartida,
+          motivo: evento.nombre,
+          descripcion: evento.descripcion,
+          idUsuarioQueMurio: idUsuario
+        });
+      }
+
     } catch (error) {
       console.error("Error al jugar el turno:", error);
 
@@ -1247,11 +2461,630 @@ io.on("connection", (socket) => {
   });
 
 
+  // ==========================================================================
+  // MINIJUEGO DE DUELO (tatetí) POR UN TÍTULO DISPUTADO
+  // ==========================================================================
+  // Cuando un jugador gana un título con estado 'pendiente_duelo', el rival
+  // puede robarlo ganándole un tatetí. Ambos reciben 'dueloIniciado';
+  // la jugada la valida SIEMPRE el servidor (el frontend solo dibuja).
+  //
+  // IMPORTANTE: `duelosActivos` está a nivel de MÓDULO (fuera de
+  // io.on("connection")): si estuviera dentro, cada socket tendría su
+  // propio mapa vacío y el rival nunca vería el duelo del otro.
+
+  function tableroTieneGanador(tablero) {
+    const lineas = [
+      [0,1,2],[3,4,5],[6,7,8],
+      [0,3,6],[1,4,7],[2,5,8],
+      [0,4,8],[2,4,6]
+    ];
+    for (const [a, b, c] of lineas) {
+      if (tablero[a] && tablero[a] === tablero[b] && tablero[a] === tablero[c]) {
+        return tablero[a];
+      }
+    }
+    return null;
+  }
+
+  function tableroLleno(tablero) {
+    return tablero.every((casilla) => casilla !== null);
+  }
+
+  function finalizarDuelo(duelo, idGanador, motivo) {
+    const { idPartida } = duelo;
+
+    // IMPORTANTE: NO se borra el duelo del mapa acá. El estado sigue vivo
+    // hasta que alguien manda "dueloConfirmar", que es quien aplica las
+    // consecuencias en la BD (puntos, anulación, etc.) y recién ahí lo
+    // elimina. Si se borrara acá, dueloConfirmar no encontraría el duelo
+    // y los puntos nunca se sumarían.
+    duelo.finalizado = true;
+
+    io.to(`partida_${idPartida}`).emit("dueloFinalizado", {
+      idDuelo: duelo.idDuelo,
+      idGanador,
+      motivo,
+      tablero: duelo.tablero
+    });
+  }
+
+  socket.on("dueloJugar", async (data) => {
+    try {
+      const usuario = socket.request.session?.usuario;
+      if (!usuario) {
+        socket.emit("errorPartida", { mensaje: "Tenés que iniciar sesión." });
+        return;
+      }
+
+      const idPartida = Number(data?.idPartida);
+      if (!Number.isInteger(idPartida) || idPartida <= 0) {
+        socket.emit("errorPartida", { mensaje: "El ID de la partida no es válido." });
+        return;
+      }
+
+      const idParticipante = Number(data?.idParticipante);
+      if (!Number.isInteger(idParticipante) || idParticipante <= 0) {
+        socket.emit("errorPartida", { mensaje: "El participante no es válido." });
+        return;
+      }
+
+      // Buscamos un título en estado pendiente de duelo para este participante.
+      const pendientes = await mysql.realizarQuery(
+        `SELECT tg.id_titulo_ganado, tg.id_participante, tg.temporada,
+                COALESCE(t.nombre, ti.nombre, tint.nombre) AS nombre_titulo,
+                COALESCE(t.puntos_campeon, ti.puntos_campeon, tint.puntos_campeon) AS puntos_campeon,
+                COALESCE(t.imagen, ti.imagen, tint.imagen) AS imagen_titulo,
+                CASE
+                  WHEN tg.id_titulo IS NOT NULL THEN 'colectivo'
+                  WHEN tg.id_titulo_individual IS NOT NULL THEN 'individual'
+                  ELSE 'internacional'
+                END AS tipo_titulo
+           FROM TituloGanado tg
+           LEFT JOIN Titulo t ON t.id_titulo = tg.id_titulo
+           LEFT JOIN TituloIndividual ti ON ti.id_titulo_individual = tg.id_titulo_individual
+           LEFT JOIN TituloInternacional tint ON tint.id_titulo_internacional = tg.id_titulo_internacional
+          WHERE tg.id_participante = ?
+            AND tg.estado = 'pendiente_duelo'
+          ORDER BY tg.id_titulo_ganado DESC
+          LIMIT 1`,
+        [idParticipante]
+      );
+
+      if (!pendientes || pendientes.length === 0) {
+        socket.emit("errorPartida", { mensaje: "No hay ningún título pendiente de duelo." });
+        return;
+      }
+
+      const tituloPendiente = pendientes[0];
+
+      // El jugador y su rival de la partida.
+      const participantes = await mysql.realizarQuery(
+        `SELECT pp.id_participante, pp.id_usuario, u.nombre_usuario
+           FROM ParticipantePartida pp
+           INNER JOIN Usuario u ON u.id_usuario = pp.id_usuario
+          WHERE pp.id_partida = ?`,
+        [idPartida]
+      );
+
+      const dueno = participantes.find(
+        (p) => Number(p.id_participante) === Number(tituloPendiente.id_participante)
+      );
+      const rival = participantes.find(
+        (p) => Number(p.id_participante) !== Number(tituloPendiente.id_participante)
+      );
+
+      if (!dueno || !rival) {
+        socket.emit("errorPartida", { mensaje: "No se encontraron los jugadores de la partida." });
+        return;
+      }
+
+      // Elige un minijuego al azar entre los disponibles.
+      const juego = MINIJUEGOS_DUELO[
+        Math.floor(Math.random() * MINIJUEGOS_DUELO.length)
+      ];
+
+      const idDuelo = `duelo_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
+
+      // Sorteo de quién empieza (50/50).
+      const idTurno = Math.random() < 0.5
+        ? Number(dueno.id_usuario)
+        : Number(rival.id_usuario);
+
+      const estadoDuelo = {
+        idDuelo,
+        idPartida,
+        juego,
+        titulo: tituloPendiente,
+        idDueno: Number(dueno.id_usuario),
+        idRival: Number(rival.id_usuario),
+        nombreDueno: dueno.nombre_usuario,
+        nombreRival: rival.nombre_usuario,
+        turno: idTurno,
+        tablero: Array(9).fill(null),
+        simboloDueno: "X",
+        simboloRival: "O"
+      };
+
+      duelosActivos.set(idDuelo, estadoDuelo);
+
+      // El minijuego de reacción arranca su primera ronda inmediatamente.
+      if (juego === "reaccion") {
+        iniciarRondaReaccion(estadoDuelo);
+      }
+
+      io.to(`partida_${idPartida}`).emit("dueloIniciado", {
+        idDuelo,
+        juego,
+        titulo: {
+          nombre: tituloPendiente.nombre_titulo,
+          tipo: tituloPendiente.tipo_titulo,
+          imagen: tituloPendiente.imagen_titulo,
+          puntos_campeon: tituloPendiente.puntos_campeon
+        },
+        idDueno: estadoDuelo.idDueno,
+        idRival: estadoDuelo.idRival,
+        nombreDueno: estadoDuelo.nombreDueno,
+        nombreRival: estadoDuelo.nombreRival,
+        turno: idTurno,
+        simboloDueno: "X",
+        simboloRival: "O"
+      });
+    } catch (error) {
+      console.error("Error al iniciar el duelo:", error);
+      socket.emit("errorPartida", { mensaje: "No se pudo iniciar el duelo." });
+    }
+  });
+
+  socket.on("dueloJugada", (data) => {
+    const duelo = duelosActivos.get(String(data?.idDuelo));
+    if (!duelo || duelo.finalizado) {
+      // Silencioso si ya terminó (puede llegar un click rezagado).
+      if (duelo?.finalizado) return;
+      socket.emit("errorPartida", { mensaje: "No hay ningún duelo activo con ese ID." });
+      return;
+    }
+
+    const usuario = socket.request.session?.usuario;
+    if (!usuario) {
+      socket.emit("errorPartida", { mensaje: "Tenés que iniciar sesión." });
+      return;
+    }
+
+    const idUsuario = Number(usuario.id_usuario);
+    if (Number(duelo.turno) !== idUsuario) {
+      socket.emit("errorPartida", { mensaje: "No es tu turno." });
+      return;
+    }
+
+    const casilla = Number(data?.casilla);
+    if (!Number.isInteger(casilla) || casilla < 0 || casilla > 8) {
+      socket.emit("errorPartida", { mensaje: "Casilla inválida." });
+      return;
+    }
+    if (duelo.tablero[casilla] !== null) {
+      socket.emit("errorPartida", { mensaje: "Esa casilla ya está ocupada." });
+      return;
+    }
+
+    // Colocamos la ficha del jugador actual.
+    const esDueno = idUsuario === duelo.idDueno;
+    duelo.tablero[casilla] = esDueno ? duelo.simboloDueno : duelo.simboloRival;
+
+    const ganadorTablero = tableroTieneGanador(duelo.tablero);
+
+    if (ganadorTablero) {
+      // Quien ganó el tatetí gana el duelo por el título.
+      const idGanadorDuelo =
+        ganadorTablero === duelo.simboloDueno ? duelo.idDueno : duelo.idRival;
+      finalizarDuelo(duelo, idGanadorDuelo, "tateti_ganado");
+      return;
+    }
+
+    if (tableroLleno(duelo.tablero)) {
+      // Empate: el título se define al azar (el dueño conserva una leve
+      // ventaja: gana con un 60% de probabilidad).
+      const idGanadorEmpate = Math.random() < 0.6
+        ? duelo.idDueno
+        : duelo.idRival;
+      finalizarDuelo(duelo, idGanadorEmpate, "empate");
+      return;
+    }
+
+    // Cambio de turno.
+    duelo.turno = esDueno ? duelo.idRival : duelo.idDueno;
+
+    io.to(`partida_${duelo.idPartida}`).emit("dueloActualizado", {
+      idDuelo: duelo.idDuelo,
+      tablero: duelo.tablero,
+      turno: duelo.turno,
+      ultimaJugada: casilla
+    });
+  });
+
+  // ==========================================================================
+  // MINIJUEGO DE REACCIÓN: el botón se ilumina en un momento aleatorio y
+  // el primero en clickear gana el duelo. Si alguien clickea ANTES de que
+  // se ilumine, pierde automáticamente (es un arranque, como en el 100m).
+  // ==========================================================================
+
+  function iniciarRondaReaccion(duelo) {
+    // Preparación de la ronda: retardo aleatorio entre 1.5 y 5 s.
+    duelo.reaccion = {
+      esperando: true,
+      listo: false,
+      temporizador: setTimeout(() => {
+        if (!duelosActivos.has(duelo.idDuelo) || duelo.finalizado) return;
+        duelo.reaccion.esperando = false;
+        duelo.reaccion.listo = true;
+        duelo.reaccion.momentoListo = Date.now();
+
+        io.to(`partida_${duelo.idPartida}`).emit("dueloReaccionListo", {
+          idDuelo: duelo.idDuelo
+        });
+
+        // Timeout de seguridad: si nadie clickea en 3 s, se define al azar
+        // (evita duelos colgados, por ejemplo si alguien cierra el navegador).
+        duelo.reaccion.timeout = setTimeout(() => {
+          if (!duelosActivos.has(duelo.idDuelo) || duelo.finalizado) return;
+          finalizarDuelo(duelo, Math.random() < 0.5 ? duelo.idDueno : duelo.idRival, "reaccion_timeout");
+        }, 3000);
+      }, 1500 + Math.random() * 3500)
+    };
+
+    io.to(`partida_${duelo.idPartida}`).emit("dueloReaccionPreparando", {
+      idDuelo: duelo.idDuelo
+    });
+  }
+
+  socket.on("dueloReaccionClick", (data) => {
+    const duelo = duelosActivos.get(String(data?.idDuelo));
+    if (!duelo || duelo.finalizado || duelo.juego !== "reaccion") return;
+
+    const usuario = socket.request.session?.usuario;
+    if (!usuario) return;
+    const idUsuario = Number(usuario.id_usuario);
+
+    const r = duelo.reaccion;
+    if (!r) return;
+
+    clearTimeout(r.timeout);
+
+    if (r.esperando) {
+      // Clickeó ANTES de que se encendiera la luz: salida nula, pierde.
+      const idGanador = idUsuario === duelo.idDueno ? duelo.idRival : duelo.idDueno;
+      finalizarDuelo(duelo, idGanador, "reaccion_quemado");
+      return;
+    }
+
+    if (r.listo) {
+      // Primer click luego de que se encendió: gana.
+      finalizarDuelo(duelo, idUsuario, "reaccion_ganado");
+    }
+  });
+
+  // Confirmación final del duelo: aplica las consecuencias en la BD.
+  // (separa la lógica de estado de la lógica de persistencia para que
+  // el duelo no bloquee el turno original mientras se juega).
+  socket.on("dueloConfirmar", async (data) => {
+    try {
+      const usuario = socket.request.session?.usuario;
+      if (!usuario) {
+        socket.emit("errorPartida", { mensaje: "Tenés que iniciar sesión." });
+        return;
+      }
+
+      const idDuelo = String(data?.idDuelo);
+      const duelo = duelosActivos.get(idDuelo);
+      if (!duelo) {
+        socket.emit("errorPartida", { mensaje: "No hay ningún duelo activo con ese ID." });
+        return;
+      }
+      duelosActivos.delete(idDuelo);
+
+      // Limpieza: si era un duelo de reacción, cancelamos cualquier
+      // temporizador pendiente para que no quede nada colgado.
+      if (duelo.reaccion) {
+        clearTimeout(duelo.reaccion.temporizador);
+        clearTimeout(duelo.reaccion.timeout);
+      }
+
+      const idGanador = Number(data?.idGanador);
+      const idPerdedor = idGanador === duelo.idDueno ? duelo.idRival : duelo.idDueno;
+      const idPartida = duelo.idPartida;
+
+      // Resolvemos los id_participante real de ganador y perdedor.
+      const participantes = await mysql.realizarQuery(
+        `SELECT id_participante, id_usuario
+           FROM ParticipantePartida
+          WHERE id_partida = ?`,
+        [idPartida]
+      );
+      const partGanador = participantes.find(
+        (p) => Number(p.id_usuario) === idGanador
+      );
+      const partPerdedor = participantes.find(
+        (p) => Number(p.id_usuario) === idPerdedor
+      );
+      if (!partGanador || !partPerdedor) {
+        socket.emit("errorPartida", { mensaje: "No se pudieron identificar los jugadores del duelo." });
+        return;
+      }
+
+      if (partGanador.id_participante === duelo.titulo.id_participante) {
+        // El dueño defiende el título: se confirma y recién ahí suma
+        // puntos de campeón, plata, fama e idolatría (como un título normal).
+        const titulo = await obtenerTituloGanado(
+          mysql.realizarQuery,
+          duelo.titulo.id_titulo_ganado
+        );
+        if (titulo) {
+          await mysql.realizarQuery(
+            `UPDATE TituloGanado
+                SET estado = 'ganado', puntos_obtenidos = ?
+              WHERE id_titulo_ganado = ?`,
+            [Number(titulo.puntos_campeon) || 0, duelo.titulo.id_titulo_ganado]
+          );
+
+          const prestigio = Number(titulo.prestigio) || 0;
+          const famaTitulo =
+            titulo.tipo === "individual" ? prestigio * 50 :
+            titulo.tipo === "internacional" ? prestigio * 30 :
+            prestigio * 20;
+          const idolatriaTitulo = titulo.tipo === "individual" ? prestigio * 10 : 0;
+          const premioDinero = (Number(titulo.puntos_campeon) || 0) * 100;
+
+          await mysql.realizarQuery(
+            `UPDATE ParticipantePartida
+                SET puntos_campeon = COALESCE(puntos_campeon, 0) + ?,
+                    plata = COALESCE(plata, 0) + ?,
+                    fama = GREATEST(0, fama + ?),
+                    idolatria = GREATEST(0, idolatria + ?)
+              WHERE id_participante = ?`,
+            [Number(titulo.puntos_campeon) || 0, premioDinero, famaTitulo,
+             idolatriaTitulo, partGanador.id_participante]
+          );
+        }
+
+        // Actualizamos el estado de la partida para ambos jugadores.
+        const jugadores = await obtenerJugadores(mysql.realizarQuery, idPartida);
+        io.to(`partida_${idPartida}`).emit("estadoPartidaActualizado", {
+          jugadores,
+          idUsuarioQueJugo: null
+        });
+      } else {
+        // El rival le ganó el duelo: el título se ANULA y el rival se queda
+        // con los puntos de campeón como recompensa por evitar el título.
+        await mysql.realizarQuery(
+          `UPDATE TituloGanado
+              SET estado = 'anulado', puntos_obtenidos = 0
+            WHERE id_titulo_ganado = ?`,
+          [duelo.titulo.id_titulo_ganado]
+        );
+
+        const puntosRobados = Number(duelo.titulo.puntos_campeon) || 0;
+        await mysql.realizarQuery(
+          `UPDATE ParticipantePartida
+              SET puntos_campeon = COALESCE(puntos_campeon, 0) + ?,
+                  fama = GREATEST(0, fama + ?)
+            WHERE id_participante = ?`,
+          [puntosRobados, Math.round(puntosRobados / 2), partGanador.id_participante]
+        );
+
+        const jugadores = await obtenerJugadores(mysql.realizarQuery, idPartida);
+        io.to(`partida_${idPartida}`).emit("estadoPartidaActualizado", { jugadores });
+      }
+
+      const puntosRecompensa = Number(duelo.titulo.puntos_campeon) || 0;
+
+      io.to(`partida_${idPartida}`).emit("dueloResuelto", {
+        idDuelo,
+        idGanador,
+        tituloGanadoPorDueno: partGanador.id_participante === duelo.titulo.id_participante,
+        puntosRecompensa
+      });
+    } catch (error) {
+      console.error("Error al confirmar el duelo:", error);
+      socket.emit("errorPartida", { mensaje: "No se pudo confirmar el duelo." });
+    }
+  });
+
   socket.on("disconnect", () => {
     console.log("Usuario desconectado");
   });
 });
 
+
+// Mapa de duelos activos a nivel de MÓDULO: compartido entre todas las
+// conexiones (el duelo es 1v1: dos sockets distintos deben ver el mismo estado).
+const duelosActivos = new Map(); // idDuelo -> estado del duelo
+
+// ============================================================================
+// FIN DE PARTIDA Y RANKING
+// ============================================================================
+//
+
+// Última casilla del tablero: al alcanzarla termina la carrera.
+const CASILLERO_FINAL = 20;
+
+/**
+ * Puntaje de una carrera. Se usa para desempatar cuando los dos
+ * jugadores llegan al final y para armar el ranking histórico.
+ *
+ * La idolatría pesa más que la fama y la plata porque es lo que
+ * define a una leyenda; los goles y asistencias suman el rendimiento
+ * deportivo y el GRL máximo premia el techo futbolístico alcanzado.
+ */
+function calcularPuntajeCarrera(jugador) {
+  const numero = (valor) => {
+    const convertido = Number(valor);
+    return Number.isFinite(convertido) ? convertido : 0;
+  };
+
+  return Math.round(
+    numero(jugador.idolatria) * 3 +
+    numero(jugador.fama) * 2 +
+    numero(jugador.plata) * 0.5 +
+    numero(jugador.goles) * 4 +
+    numero(jugador.asistencias) * 2 +
+    numero(jugador.grl_maxima) * 10
+  );
+}
+
+/**
+ * Cierra la partida: marca el estado, guarda el ganador y el puntaje
+ * de cada participante. Es idempotente: si la partida ya estaba
+ * finalizada devuelve el ganador guardado sin recalcular nada.
+ */
+async function finalizarPartida(query, idPartida) {
+  const partidas = await query(
+    `SELECT id_partida, estado, id_ganador
+       FROM Partida
+      WHERE id_partida = ?
+      FOR UPDATE`,
+    [idPartida]
+  );
+
+  if (partidas.length === 0) {
+    return { ganador: null };
+  }
+
+  const participantes = await query(
+    `SELECT
+        pp.id_participante,
+        pp.id_usuario,
+        pp.goles,
+        pp.asistencias,
+        pp.fama,
+        pp.plata,
+        pp.idolatria,
+        pp.grl,
+        pp.grl_maxima
+     FROM ParticipantePartida pp
+     WHERE pp.id_partida = ?`,
+    [idPartida]
+  );
+
+  const conPuntaje = participantes.map((jugador) => ({
+    ...jugador,
+    puntaje: calcularPuntajeCarrera(jugador)
+  }));
+
+  // Desempate: puntaje, luego GRL máxima, luego goles.
+  const ordenados = [...conPuntaje].sort((a, b) =>
+    b.puntaje - a.puntaje ||
+    (Number(b.grl_maxima) || 0) - (Number(a.grl_maxima) || 0) ||
+    (Number(b.goles) || 0) - (Number(a.goles) || 0)
+  );
+
+  const ganador = ordenados[0] ?? null;
+
+  if (partidas[0].estado === "finalizada") {
+    return { ganador };
+  }
+
+  for (const jugador of conPuntaje) {
+    await query(
+      `UPDATE ParticipantePartida
+          SET puntaje_final = ?
+        WHERE id_participante = ?`,
+      [jugador.puntaje, jugador.id_participante]
+    );
+  }
+
+  await query(
+    `UPDATE Partida
+        SET estado = 'finalizada',
+            fecha_fin = COALESCE(fecha_fin, NOW()),
+            id_ganador = ?
+      WHERE id_partida = ?`,
+    [ganador ? Number(ganador.id_usuario) : null, idPartida]
+  );
+
+  return { ganador };
+}
+
+/**
+ * Devuelve las estadísticas finales de los dos participantes de una
+ * partida, ordenadas por puntaje. Cada jugador recibe además su
+ * posición (1 o 2) y si ganó.
+ */
+async function obtenerResultadoPartida(idPartida) {
+  const partidas = await mysql.realizarQuery(
+    `SELECT
+        p.id_partida,
+        p.nombre_sala,
+        p.estado,
+        p.fecha_inicio,
+        p.fecha_fin,
+        p.id_ganador
+     FROM Partida p
+     WHERE p.id_partida = ?`,
+    [idPartida]
+  );
+
+  if (partidas.length === 0) return null;
+
+  const jugadores = await mysql.realizarQuery(
+    `SELECT
+        pp.id_participante,
+        pp.id_usuario,
+        pp.nombre_leyenda,
+        pp.posicion_actual,
+        pp.goles,
+        pp.asistencias,
+        pp.partidos_jugados,
+        pp.fama,
+        pp.plata,
+        pp.idolatria,
+        pp.grl,
+        pp.grl_maxima,
+        pp.puntaje_final,
+        pp.id_nacionalidad,
+        nat.nombre AS nacionalidad,
+        u.nombre_usuario,
+        c.nombre AS nombre_club,
+        c.liga
+     FROM ParticipantePartida pp
+     INNER JOIN Usuario u
+        ON pp.id_usuario = u.id_usuario
+     LEFT JOIN Club c
+        ON pp.id_club = c.id_club
+     LEFT JOIN Seleccion nat
+        ON nat.id_seleccion = pp.id_nacionalidad
+     WHERE pp.id_partida = ?`,
+    [idPartida]
+  );
+
+  const conPuntaje = jugadores.map((jugador) => ({
+    ...jugador,
+    puntaje: Number(jugador.puntaje_final) || calcularPuntajeCarrera(jugador),
+    moneda: monedaPorSeleccion(jugador.nacionalidad)
+  }));
+
+  const ordenados = [...conPuntaje].sort((a, b) =>
+    b.puntaje - a.puntaje ||
+    (Number(b.grl_maxima) || 0) - (Number(a.grl_maxima) || 0) ||
+    (Number(b.goles) || 0) - (Number(a.goles) || 0)
+  );
+
+  const partida = partidas[0];
+
+  return {
+    partida: {
+      id_partida: partida.id_partida,
+      nombre_sala: partida.nombre_sala,
+      estado: partida.estado,
+      fecha_inicio: partida.fecha_inicio,
+      fecha_fin: partida.fecha_fin,
+      id_ganador: partida.id_ganador
+    },
+    jugadores: ordenados.map((jugador, indice) => ({
+      ...jugador,
+      posicion_final: indice + 1,
+      gano: indice === 0
+    }))
+  };
+}
 
 async function obtenerJugadores(query, idPartida) {
   return await query(
@@ -1260,10 +3093,21 @@ async function obtenerJugadores(query, idPartida) {
             pp.id_partida,
             pp.id_usuario,
             pp.id_club,
+            c.jerarquia AS jerarquia_club,
+            pp.grl,
+            pp.edad,
+            pp.lesionado,
+            pp.lesion_hasta_temporada,
+            pp.id_seleccion,
+            sel.nombre AS nombre_seleccion,
+            pp.puntos_campeon,
+            (SELECT COUNT(*) FROM TituloGanado tg
+              WHERE tg.id_participante = pp.id_participante) AS cantidad_titulos,
             pp.id_titulo,
             pp.puntos_campeon,
             pp.goles,
             pp.asistencias,
+            pp.partidos_jugados,
             pp.listo,
             pp.posicion_actual,
             pp.turno,
@@ -1275,7 +3119,15 @@ async function obtenerJugadores(query, idPartida) {
             u.nombre_usuario,
             c.nombre AS nombre_club,
             c.liga,
-            t.nombre AS nombre_titulo
+            COALESCE(t.nombre, ti.nombre, tint.nombre) AS nombre_titulo,
+            t.imagen AS imagen_titulo,
+            t.prestigio AS prestigio_titulo,
+            ti.nombre AS nombre_titulo_individual,
+            ti.imagen AS imagen_titulo_individual,
+            ti.prestigio AS prestigio_titulo_individual,
+            tint.nombre AS nombre_titulo_internacional,
+            tint.imagen AS imagen_titulo_internacional,
+            tint.prestigio AS prestigio_titulo_internacional
          FROM ParticipantePartida pp
          INNER JOIN Usuario u
             ON pp.id_usuario = u.id_usuario
@@ -1283,25 +3135,1974 @@ async function obtenerJugadores(query, idPartida) {
             ON pp.id_club = c.id_club
          LEFT JOIN Titulo t
             ON pp.id_titulo = t.id_titulo
+         LEFT JOIN TituloIndividual ti
+            ON pp.id_titulo_individual = ti.id_titulo_individual
+         LEFT JOIN TituloInternacional tint
+            ON pp.id_titulo_internacional = tint.id_titulo_internacional
+         LEFT JOIN Seleccion sel
+            ON pp.id_seleccion = sel.id_seleccion
          WHERE pp.id_partida = ?`,
     [idPartida]
   );
 }
 
-/** Sortea un evento usando peso como ponderación relativa entre los elegibles. */
-function sortearEventoPonderado(eventos) {
-  const elegibles = eventos
-    .map((evento) => ({ ...evento, peso: Number(evento.peso) }))
-    .filter((evento) => Number.isFinite(evento.peso) && evento.peso > 0);
-  const pesoTotal = elegibles.reduce((total, evento) => total + evento.peso, 0);
+/**
+ * TÍTULOS POR TEMPORADA
+ *
+ * Al final de cada temporada el jugador puede ganar hasta 3 títulos:
+ *   1. Colectivo (con su club): la jerarquía del club (1 = mejor)
+ *      define la probabilidad y qué trofeos compite.
+ *   2. Internacional (club o selección): también pondera jerarquía.
+ *   3. Individual (Balón de Oro, Goleador, etc.): depende del
+ *      rendimiento (nota, goles, asistencias) y del prestigio.
+ *
+ * Cada sorteo usa un puntaje "mérito" por título (base por prestigio,
+ * multiplicado por rendimiento y jerarquía) contra un umbral aleatorio:
+ * los mejores clubes y mejores temporadas ganan más seguido y premios
+ * más importantes.
+ */
 
-  if (pesoTotal <= 0) throw new Error("No hay eventos con peso válido para sortear.");
+async function obtenerTituloGanado(query, idTituloGanado) {
+  if (!Number.isInteger(idTituloGanado) || idTituloGanado <= 0) return null;
 
-  let sorteo = Math.random() * pesoTotal;
-  for (const evento of elegibles) {
-    sorteo -= evento.peso;
-    if (sorteo < 0) return evento;
+  const filas = await query(
+    `SELECT tg.id_titulo_ganado,
+            tg.temporada,
+            CASE
+              WHEN tg.id_titulo IS NOT NULL THEN 'colectivo'
+              WHEN tg.id_titulo_individual IS NOT NULL THEN 'individual'
+              ELSE 'internacional'
+            END AS tipo,
+            COALESCE(tc.nombre, ti.nombre, tint.nombre) AS nombre,
+            COALESCE(tc.puntos_campeon, ti.puntos_campeon, tint.puntos_campeon) AS puntos_campeon,
+            COALESCE(tc.prestigio, ti.prestigio, tint.prestigio) AS prestigio,
+            COALESCE(tc.imagen, ti.imagen, tint.imagen) AS imagen,
+            tc.pais,
+            tint.continente
+       FROM TituloGanado tg
+       LEFT JOIN Titulo tc ON tc.id_titulo = tg.id_titulo
+       LEFT JOIN TituloIndividual ti ON ti.id_titulo_individual = tg.id_titulo_individual
+       LEFT JOIN TituloInternacional tint ON tint.id_titulo_internacional = tg.id_titulo_internacional
+      WHERE tg.id_titulo_ganado = ?`,
+    [idTituloGanado]
+  );
+
+  return filas[0] || null;
+}
+
+/**
+ * Sortea un título: cada candidato tiene un "mérito" y compite contra un
+ * umbral aleatorio. Devuelve el id del título ganado o null si no se gana.
+ * candidatos: [{ id, merito }]
+ */
+function sortearTitulo(candidatos) {
+  if (!candidatos || candidatos.length === 0) return null;
+
+  const totalMerito = candidatos.reduce(
+    (suma, candidato) => suma + candidato.merito,
+    0
+  );
+
+  // Punto de corte: más mérito acumulado = más chances.
+  const umbral = Math.random() * 100;
+  let acumulado = 0;
+
+  for (const candidato of candidatos) {
+    acumulado += (candidato.merito / totalMerito) * 100;
+    if (umbral <= acumulado) {
+      return candidato.id;
+    }
   }
 
-  return elegibles[elegibles.length - 1];
+  return null;
 }
+
+/**
+ * Decide los títulos de la temporada y los registra en TituloGanado.
+ * Devuelve [{ tipo, ...titulo }] (vacío si no ganó nada).
+ */
+const PROBABILIDAD_DUELO = 0.5; // 50% de los títulos se juegan en duelo
+
+/**
+ * Minijuegos de duelo disponibles por título. Por ahora: Tatetí.
+ * La idea a futuro es sumar más (memorice, penales, apuntar, etc.);
+ * la arquitectura ya soporta varios: el frontend elige cómo renderizar
+ * según el campo `juego` del evento de duelo.
+ */
+const MINIJUEGOS_DUELO = ["tateti", "reaccion"];
+
+async function procesarTitulosTemporada({
+  idParticipante,
+  idClub,
+  jerarquiaClub,
+  notaRendimiento,
+  golesNuevos,
+  asistenciasNuevas,
+  partidosJugadosTemporada,
+  temporada,
+  idSeleccion,
+  nombreSeleccion,
+  continenteSeleccion,
+  edad,
+  paisClub,
+  continenteClub,        // confederación del CLUB (auditoría)
+  pudoDisputarTemporada, // false si terminó la carrera / temporada perdida
+  titulosColectivosRival, // títulos colectivos del rival (coherencia multi-jugador)
+  jugadorRivalId,         // id_participante del rival (para el minijuego de duelo)
+  query
+}) {
+  const titulosGanados = [];
+
+  /**
+   * ¿El RIVAL ya ganó este título? Solo aplica a títulos de LIGA cuando el
+   * rival juega en la misma liga: una liga tiene un solo campeón por año.
+   */
+  const bloqueadoPorRival = (titulo, ligaClub, titulosRival) => {
+    if (!ligaClub || !titulosRival || titulosRival.length === 0) return false;
+    const paisLiga = titulosModulo.MAPA_LIGA_A_PAIS[ligaClub];
+    if (!paisLiga) return false;
+    return titulosRival.some((previo) =>
+      titulosModulo.esLiga(previo.nombre) &&
+      titulosModulo.normalizarTexto(previo.pais) ===
+        titulosModulo.normalizarTexto(paisLiga)
+    );
+  };
+
+  // Sin temporada disputada no hay título posible: ni colectivo (el equipo
+  // jugó sin vos), ni internacional (no participaste), ni individual.
+  if (!pudoDisputarTemporada || partidosJugadosTemporada <= 0) {
+    return titulosGanados;
+  }
+
+  // Los duelos solo tienen sentido si hay un rival en la partida.
+  const hayRival = Boolean(titulosColectivosRival && jugadorRivalId != null);
+
+  const registrarTitulo = async (columna, idTitulo, tipo, forzarDuelo = false) => {
+    // Un mismo título no se gana dos veces en la misma temporada/edición.
+    const [existentes] = await query(
+      `SELECT COUNT(*) AS n FROM TituloGanado
+        WHERE id_participante = ? AND temporada = ? AND ${columna} = ?`,
+      [idParticipante, temporada, idTitulo]
+    );
+    if (Number(existentes?.n) > 0) return null;
+
+    // --- MINIJUEGO DE DUELO: el título se disputa en vez de ganarlo directo ---
+    // Con cierta frecuencia, en lugar de quedarte el título en el acto,
+    // hay que defenderlo en un minijuego 1v1 contra el rival. Si perdés
+    // el duelo, el título se anula y el rival se queda con los puntos
+    // de campeón como recompensa por evitarlo.
+    const enDuelo = forzarDuelo && Math.random() < PROBABILIDAD_DUELO;
+
+    if (enDuelo) {
+      // Se registra igual en TituloGanado pero en estado pendiente:
+      // no suma puntos ni plata todavia. Si el jugador gana el duelo,
+      // se activa (pasa a 'ganado' y recién ahí suma todo).
+      const pendiente = await query(
+        `INSERT INTO TituloGanado
+                    (id_participante, ${columna}, temporada, estado)
+                 VALUES (?, ?, ?, 'pendiente_duelo')`,
+        [idParticipante, idTitulo, temporada]
+      );
+
+      const titulo = await obtenerTituloGanado(query, pendiente.insertId);
+      if (titulo) {
+        titulosGanados.push({
+          tipo,
+          estado_duelo: "pendiente",
+          ...titulo
+        });
+      }
+      return titulo;
+    }
+
+    const resultado = await query(
+      `INSERT INTO TituloGanado
+                  (id_participante, ${columna}, temporada)
+               VALUES (?, ?, ?)`,
+      [idParticipante, idTitulo, temporada]
+    );
+
+    const titulo = await obtenerTituloGanado(query, resultado.insertId);
+    if (titulo) {
+      titulosGanados.push({ tipo, ...titulo });
+
+      // Sistema de puntaje: el título suma DIRECTAMENTE sus
+      // puntos_campeon a ParticipantePartida, paga su PREMIO EN DINERO
+      // (1 punto_campeon = 100 unidades) y suma FAMA según el prestigio
+      // del trofeo. Los INDIVIDUALES son los que más faman dan (son
+      // reconocimientos PERSONALES) y también levantan la idolatría.
+      // Colectivos: prestigio 1-5 -> 20-100 de fama.
+      // Internacionales: prestigio 1-5 -> 30-150 de fama.
+      // Individuales: prestigio 1-5 -> 50-250 de fama + 10-50 de idolatría.
+      const prestigio = Number(titulo.prestigio) || 0;
+      const famaTitulo =
+        tipo === "individual" ? prestigio * 50 :
+        tipo === "internacional" ? prestigio * 30 :
+        prestigio * 20;
+      const idolatriaTitulo = tipo === "individual" ? prestigio * 10 : 0;
+      const premioDinero = (Number(titulo.puntos_campeon) || 0) * 100;
+      await query(
+        `UPDATE ParticipantePartida
+            SET puntos_campeon = COALESCE(puntos_campeon, 0) + ?,
+                plata = COALESCE(plata, 0) + ?,
+                fama = COALESCE(fama, 0) + ?,
+                idolatria = COALESCE(idolatria, 0) + ?
+          WHERE id_participante = ?`,
+        [Number(titulo.puntos_campeon) || 0, premioDinero, famaTitulo,
+         idolatriaTitulo, idParticipante]
+      );
+
+      await query(
+        `UPDATE TituloGanado SET puntos_obtenidos = ? WHERE id_titulo_ganado = ?`,
+        [Number(titulo.puntos_campeon) || 0, resultado.insertId]
+      );
+    }
+    return titulo;
+  };
+
+  // Historial del jugador para las dependencias (Supercopa, Mundial de
+  // Clubes, Finalissima). Una sola consulta, filtrada en memoria.
+  const titulosPrevios = await query(
+    `SELECT tg.temporada,
+            t.id_titulo, t.nombre AS nombre_titulo, t.pais,
+            tint.id_titulo_internacional
+       FROM TituloGanado tg
+       LEFT JOIN Titulo t ON t.id_titulo = tg.id_titulo
+       LEFT JOIN TituloInternacional tint
+              ON tint.id_titulo_internacional = tg.id_titulo_internacional
+      WHERE tg.id_participante = ?`,
+    [idParticipante]
+  );
+  const listaPrevios = (titulosPrevios || []).filter(Boolean);
+  const previosInternacionales = listaPrevios
+    .filter((p) => p.id_titulo_internacional != null)
+    .map((p) => ({
+      id_titulo_internacional: p.id_titulo_internacional,
+      temporada: p.temporada
+    }));
+
+  // ============================================================
+  // 1. TÍTULO COLECTIVO (con el club)
+  // ============================================================
+  // La jerarquía (1 = más chico, 5 = gigante) define tanto la
+  // probabilidad como la calidad del trofeo que compite.
+  if (idClub) {
+    const jerarquia = Math.min(5, Math.max(1, Number(jerarquiaClub) || 3));
+
+    // Probabilidad base de campeonar según jerarquía: los gigantes pelean
+    // seguido, los chicos casi nunca. Un solo tiro, no uno por trofeo: si
+    // falla, la temporada queda sin título colectivo. Con el ajuste, un
+    // gigante campeonaa ~35% por temporada (un título cada ~3 temporadas)
+    // y un club chico ~4%.
+    const probabilidadCampeon = 0.04 + (jerarquia - 1) * 0.078; // 4% .. 35%
+
+    if (Math.random() >= probabilidadCampeon) {
+      // No salió campeón esta temporada.
+    } else {
+    // El rendimiento de la temporada del jugador empuja al equipo.
+    const meritoRendimiento =
+      0.6 + notaRendimiento / 10 + (golesNuevos + asistenciasNuevas * 0.5) /
+        Math.max(1, partidosJugadosTemporada);
+
+    // AUDITORÍA: Club.liga guarda la LIGA ("Brasileirão", "MLS"), no el
+    // país. Comparar Titulo.pais = Club.liga dejaba la mayoría de las
+    // ligas inganables. Se traduce la liga a país con el mapa del módulo
+    // de títulos y se filtra con las reglas de elegibilidad.
+    const [clubActual] = await query(
+      `SELECT liga FROM Club WHERE id_club = ?`,
+      [idClub]
+    );
+    const ligaClub = clubActual?.liga || null;
+
+    const candidatosColectivos = await query(
+      `SELECT id_titulo, nombre, pais, prestigio
+         FROM Titulo`,
+      []
+    );
+
+    const elegibles = candidatosColectivos.filter((titulo) =>
+      titulosModulo.elegibleTituloColectivo({
+        titulo,
+        ligaClub,
+        jerarquia,
+        titulosPrevios: listaPrevios,
+        temporada
+      }) &&
+      // Coherencia multi-jugador: si el rival juega en la MISMA liga y ya
+      // ganó el título de liga (o cualquier título nacional del país de la
+      // liga en el mismo año), el trofeo ya tiene dueño. Se filtran los
+      // títulos de LIGA del país de la liga compartida; copas nacionales
+      // pueden compartirlas (se juegan contra otros clubes).
+      !bloqueadoPorRival(titulo, ligaClub, titulosColectivosRival)
+    );
+
+    const ganadorColectivo = sortearTitulo(
+      elegibles.map((titulo) => ({
+        id: titulo.id_titulo,
+        merito:
+         Number(titulo.prestigio) * meritoRendimiento
+      }))
+    );
+
+    if (ganadorColectivo) {
+      await registrarTitulo(
+        "id_titulo", ganadorColectivo, "colectivo", hayRival
+      );
+    }
+    }
+  }
+
+  // ============================================================
+  // 2. TÍTULO INTERNACIONAL
+  // ============================================================
+  // Solo clubes con cierta jerarquía (y validaciones por tipo de
+  // torneo) compiten. Los torneos de selecciones exigen estar
+  // convocado (id_seleccion != NULL) y el Mundial tiene chances mínimas.
+  if (idClub) {
+    const jerarquia = Math.min(5, Math.max(1, Number(jerarquiaClub) || 3));
+
+    const candidatosInternacionales = await query(
+      `SELECT id_titulo_internacional, nombre, prestigio, continente,
+              tipo_seleccion, jerarquia_minima, continente_club
+        FROM TituloInternacional
+        WHERE jerarquia_minima IS NULL OR jerarquia_minima <= ?
+        ORDER BY prestigio DESC`,
+      [jerarquia]
+    );
+
+    // Filtro duro de validaciones (auditoría - competencias internacionales):
+    // - De CLUBES: la confederación del CLUB decide la elegibilidad, no el
+    //   país del jugador. Un club sudamericano compite por Libertadores /
+    //   Sudamericana; un club europeo por Champions / Europa League.
+    // - Mundial de Clubes (anual) e Intercontinental: solo campeones
+    //   continentales (dependencia por historial).
+    // - De SELECCIONES: hay que haber sido realmente CONVOCADO y JUGADO
+    //   (desde el caller llega idSeleccion = null si no participó);
+    //   continental: la selección debe ser de esa confederación;
+    //   Olímpico: sub-23; Finalissima: campeón continental vigente.
+    const elegiblesInternacionales = candidatosInternacionales.filter(
+      (titulo) =>
+        titulosModulo.elegibleTituloInternacional({
+          titulo,
+          continenteClub,
+          idSeleccion,
+          continenteSeleccion,
+          titulosInternacionalesPrevios: previosInternacionales,
+          edad
+        })
+    );
+
+    if (elegiblesInternacionales.length > 0) {
+      // Igual que en los colectivos: un solo tiro por temporada.
+      const probabilidadInternacional = 0.02 + (jerarquia - 1) * 0.045; // 2% .. 20%
+
+      if (Math.random() < probabilidadInternacional) {
+    const meritoInternacional =
+      0.5 + notaRendimiento / 12 +
+      (golesNuevos / Math.max(1, partidosJugadosTemporada)) * 2;
+
+    const factorJerarquiaInt = 0.80 + (jerarquia - 1) * 0.175; // 0.80 .. 1.50
+
+    const ganadorInternacional = sortearTitulo(
+      elegiblesInternacionales.map((titulo) => ({
+        id: titulo.id_titulo_internacional,
+        merito: Number(titulo.prestigio) * meritoInternacional * factorJerarquiaInt
+      }))
+    );
+
+    if (ganadorInternacional) {
+      await registrarTitulo(
+        "id_titulo_internacional",
+        ganadorInternacional,
+        "internacional",
+        hayRival
+      );
+    }
+      }
+    }
+  }
+
+  // ============================================================
+  // 3. TÍTULO INDIVIDUAL
+  // ============================================================
+  // Depende del rendimiento individual real de la temporada, no del club.
+  // AUDITORÍA: antes se sorteaba entre TODOS los premios sin condiciones:
+  // un delantero podía ganar el Guante de Oro sin ser arquero, un jugador
+  // sin convocatoria podía ganar premios "de la Copa Mundial" y un jugador
+  // sin goles podía ganar premios de goleador. Ahora cada premio exige sus
+  // condiciones (ver modulos/titulos.js):
+  //   - Goleadores: mínimo de goles en la temporada + competición correcta.
+  //   - Mundial: exige convocatoria en la temporada.
+  //   - Arqueros: excluidos (el juego no registra la posición).
+  //   - Juveniles: Golden Boy/Kopa sub-21.
+  //   - UEFA: club europeo.
+  //   - Duplicados históricos (1, 3): congelados, conservan historial.
+  const edadJugador = Math.max(18, Number(edad) || 18);
+  const golPorPartido = golesNuevos / Math.max(1, partidosJugadosTemporada);
+  const asistenciaPorPartido =
+    asistenciasNuevas / Math.max(1, partidosJugadosTemporada);
+
+  // Un solo tiro: la mayoría de las temporadas no ganás nada. Además
+  // del tiro, premios TOP (Balón de Oro, The Best, Bota de Oro) exigen
+  // una temporada realmente destacada vía su mérito (ver abajo).
+  const probabilidadIndividual = Math.min(
+    0.18,
+    Math.max(
+      0.01,
+      ((notaRendimiento - 6.0) / 22) + (golPorPartido + asistenciaPorPartido) * 0.15
+    )
+  );
+
+  if (Math.random() < probabilidadIndividual) {
+  const candidatosIndividuales = await query(
+    `SELECT id_titulo_individual, nombre, prestigio, pais
+       FROM TituloIndividual`
+  );
+
+  const meritoIndividualBase =
+    notaRendimiento / 10 * 2 +
+    golPorPartido * 3 +
+    asistenciaPorPartido * 1.5;
+
+  const elegiblesIndividuales = candidatosIndividuales
+    .filter((titulo) =>
+      titulosModulo.elegibleTituloIndividual({
+        titulo,
+        edad: edadJugador,
+        ligaClub: paisClub,
+        continenteClub,
+        golesNuevos,
+        convocadoConSeleccion: idSeleccion != null && Number(idSeleccion) > 0
+      })
+    )
+    .map((titulo) => {
+      let merito = Number(titulo.prestigio) * meritoIndividualBase;
+
+      // Balón de Oro / Bota de Oro: penalización con la edad
+      // (un 35 años puede ganar, pero necesita una temporada brutal).
+      const nombreNormalizado = titulosModulo.normalizarTexto(titulo.nombre);
+      if (/bal.?n de oro|bota de oro/.test(nombreNormalizado) && edadJugador > 28) {
+        merito *= Math.max(0.2, 1 - (edadJugador - 28) * 0.08);
+      }
+
+      return { id: titulo.id_titulo_individual, merito };
+    });
+
+  const ganadorIndividual = sortearTitulo(elegiblesIndividuales);
+
+  if (ganadorIndividual) {
+    await registrarTitulo(
+      "id_titulo_individual",
+      ganadorIndividual,
+      "individual",
+      hayRival
+    );
+  }
+  }
+
+  return titulosGanados;
+}
+
+
+
+
+
+
+//
+// ============================================================================
+// PUNTAJE FINAL DE LA PARTIDA
+//
+// Liquidación al terminar: suma los puntos_campeon acumulados por títulos
+// más un SUPLEMENTO calculado con las stats recolectadas durante la
+// carrera (fama, plata, idolatría, goles, asistencias, GRL).
+// Devuelve el desglose por jugador y actualiza el ganador de la partida.
+// ============================================================================
+//
+app.get("/partidas/:idPartida/puntajeFinal", async (req, res) => {
+  try {
+    if (!req.session.usuario) {
+      return res.status(401).json({ error: "Tenés que iniciar sesión" });
+    }
+
+    const idPartida = Number(req.params.idPartida);
+    if (!Number.isInteger(idPartida) || idPartida <= 0) {
+      return res.status(400).json({ error: "Identificador de partida inválido" });
+    }
+
+    const participantes = await mysql.realizarQuery(
+      `SELECT
+            pp.id_participante,
+            pp.id_usuario,
+            pp.nombre_leyenda,
+            pp.puntos_campeon,
+            pp.goles,
+            pp.asistencias,
+            pp.partidos_jugados,
+            pp.fama,
+            pp.plata,
+            pp.idolatria,
+            pp.grl,
+            pp.posicion_actual,
+            pp.id_nacionalidad,
+            sel.nombre AS nacionalidad,
+            u.nombre_usuario
+         FROM ParticipantePartida pp
+         INNER JOIN Usuario u ON u.id_usuario = pp.id_usuario
+         LEFT JOIN Seleccion sel ON sel.id_seleccion = pp.id_nacionalidad
+         WHERE pp.id_partida = ?`,
+      [idPartida]
+    );
+
+    if (!participantes || participantes.length === 0) {
+      return res.status(404).json({ error: "La partida no existe" });
+    }
+
+    // Suplemento por stats: los TÍTULOS mandan (puntos_campeon ya viene
+    // con el prestigio de cada trofeo). Las stats acompañan: rendimiento
+    // y reconocimiento (fama, idolatría) pesan más que la plata, que con
+    // la escala nueva es un número mucho más grande que el resto.
+    const pesos = {
+      goles: 2,
+      asistencias: 1.5,
+      fama: 2,
+      plata: 0.02,
+      idolatria: 2,
+      grl: 1
+    };
+
+    const puntajes = participantes.map((p) => {
+      const suplemento =
+        Number(p.goles ?? 0) * pesos.goles +
+        Number(p.asistencias ?? 0) * pesos.asistencias +
+        Number(p.fama ?? 0) * pesos.fama +
+        Number(p.plata ?? 0) * pesos.plata +
+        Number(p.idolatria ?? 0) * pesos.idolatria +
+        Number(p.grl ?? 0) * pesos.grl;
+
+      const puntosPorTitulos = Number(p.puntos_campeon ?? 0);
+
+      return {
+        id_participante: p.id_participante,
+        id_usuario: p.id_usuario,
+        nombre_usuario: p.nombre_usuario,
+        nombre_leyenda: p.nombre_leyenda,
+        puntos_por_titulos: puntosPorTitulos,
+        suplemento_stats: Math.round(suplemento),
+        puntaje_final: puntosPorTitulos + Math.round(suplemento),
+        desglose: {
+          goles: Number(p.goles ?? 0),
+          asistencias: Number(p.asistencias ?? 0),
+          fama: Number(p.fama ?? 0),
+          plata: Number(p.plata ?? 0),
+          moneda: monedaPorSeleccion(p.nacionalidad),
+          idolatria: Number(p.idolatria ?? 0),
+          grl: Number(p.grl ?? 0)
+        }
+      };
+    });
+
+    puntajes.sort((a, b) => b.puntaje_final - a.puntaje_final);
+
+    const ganador = puntajes[0] || null;
+
+    // Persistimos al ganador si la partida todavía no lo tiene.
+    if (ganador) {
+      await mysql.realizarQuery(
+        `UPDATE Partida
+            SET id_ganador = ?,
+                estado = 'finalizada',
+                fecha_fin = COALESCE(fecha_fin, NOW())
+          WHERE id_partida = ?
+            AND id_ganador IS NULL`,
+        [ganador.id_usuario, idPartida]
+      );
+    }
+
+    return res.status(200).json({
+      idPartida,
+      puntajes,
+      ganador
+    });
+
+  } catch (error) {
+    console.error("Error al calcular el puntaje final:", error);
+    return res.status(500).json({ error: "Error al calcular el puntaje final" });
+  }
+});
+
+//
+// ============================================================================
+// RESULTADO FINAL DE LA PARTIDA
+// ============================================================================
+//
+
+// Devuelve las estadísticas finales de los dos jugadores.
+// Cada cliente recibe a ambos, pero la pantalla final solo revela
+// primero las propias y después las del rival.
+app.get("/partidas/:idPartida/final", async (req, res) => {
+  try {
+    if (!req.session.usuario) {
+      return res.status(401).json({ error: "Tenés que iniciar sesión" });
+    }
+
+    const idPartida = Number(req.params.idPartida);
+    const idUsuario = Number(req.session.usuario.id_usuario);
+
+    if (!Number.isInteger(idPartida) || idPartida <= 0) {
+      return res.status(400).json({ error: "Identificador de partida inválido" });
+    }
+
+    const resultado = await obtenerResultadoPartida(idPartida);
+
+    if (!resultado) {
+      return res.status(404).json({ error: "La partida no existe" });
+    }
+
+    const participa = resultado.jugadores.some(
+      (jugador) => Number(jugador.id_usuario) === idUsuario
+    );
+
+    if (!participa) {
+      return res.status(403).json({ error: "No participás de esta partida" });
+    }
+
+    return res.status(200).json({
+      ...resultado,
+      idUsuario
+    });
+  } catch (error) {
+    console.error("Error al obtener el resultado final:", error);
+
+    return res.status(500).json({
+      error: "No se pudo obtener el resultado de la partida"
+    });
+  }
+});
+
+//
+// ============================================================================
+// RANKING HISTÓRICO
+// ============================================================================
+//
+
+// Moneda de cada carrera según la nacionalidad de la leyenda:
+// - Inglaterra/Escocia: libras esterlinas.
+// - Europa (zona euro): euros.
+// - Resto: dólares.
+const MONEDAS_POR_SELECCION = {
+  "inglaterra": "GBP",
+  "escocia": "GBP",
+  "españa": "EUR", "espana": "EUR",
+  "italia": "EUR",
+  "alemania": "EUR",
+  "francia": "EUR",
+  "países bajos": "EUR", "paises bajos": "EUR",
+  "portugal": "EUR",
+  "bélgica": "EUR", "belgica": "EUR",
+  "austria": "EUR",
+  "suiza": "CHF"
+};
+
+function monedaPorSeleccion(nombreSeleccion) {
+  const nombre = String(nombreSeleccion ?? "").toLowerCase().trim();
+  return MONEDAS_POR_SELECCION[nombre] || "USD";
+}
+
+// Ranking de todas las carreras finalizadas. Cada fila es una carrera
+// (un participante de una partida terminada), ordenada por puntaje.
+app.get("/ranking", async (req, res) => {
+  try {
+    if (!req.session.usuario) {
+      return res.status(401).json({ error: "Tenés que iniciar sesión" });
+    }
+
+    const limite = Math.min(
+      200,
+      Math.max(1, Number(req.query.limite) || 50)
+    );
+
+    const filas = await mysql.realizarQuery(
+      `SELECT
+          pp.id_participante,
+          pp.id_usuario,
+          u.nombre_usuario,
+          pp.nombre_leyenda,
+          c.nombre AS nombre_club,
+          c.liga,
+          pp.goles,
+          pp.asistencias,
+          pp.partidos_jugados,
+          pp.fama,
+          pp.plata,
+          pp.idolatria,
+          pp.grl,
+          pp.grl_maxima,
+          pp.puntaje_final,
+          pp.id_nacionalidad,
+          sel.nombre AS nacionalidad,
+          p.id_partida,
+          p.nombre_sala,
+          p.fecha_fin,
+          CASE WHEN p.id_ganador = pp.id_usuario THEN 1 ELSE 0 END AS gano
+       FROM ParticipantePartida pp
+       INNER JOIN Partida p
+          ON p.id_partida = pp.id_partida
+       INNER JOIN Usuario u
+          ON u.id_usuario = pp.id_usuario
+       LEFT JOIN Club c
+          ON c.id_club = pp.id_club
+       LEFT JOIN Seleccion sel
+          ON sel.id_seleccion = pp.id_nacionalidad
+       WHERE p.estado = 'finalizada'
+       ORDER BY pp.puntaje_final DESC, pp.grl_maxima DESC, pp.goles DESC
+       LIMIT ?`,
+      [limite]
+    );
+
+    const ranking = filas.map((fila, indice) => ({
+      ...fila,
+      puesto: indice + 1,
+      puntaje: Number(fila.puntaje_final) || calcularPuntajeCarrera(fila),
+      moneda: monedaPorSeleccion(fila.nacionalidad),
+      gano: Number(fila.gano) === 1
+    }));
+
+    return res.status(200).json({
+      idUsuario: Number(req.session.usuario.id_usuario),
+      ranking
+    });
+  } catch (error) {
+    console.error("Error al obtener el ranking:", error);
+
+    return res.status(500).json({ error: "No se pudo obtener el ranking" });
+  }
+});
+
+// Estadísticas HISTÓRICAS de TODOS los jugadores del juego: agrega
+// TODAS las carreras (finalizadas) de cada usuario y cuenta los títulos
+// ganados (colectivos, internacionales e individuales). Es la vista
+// "libro de oro" del juego, independiente de una carrera puntual.
+app.get("/ranking/historico", async (req, res) => {
+  try {
+    if (!req.session.usuario) {
+      return res.status(401).json({ error: "Tenés que iniciar sesión" });
+    }
+
+    const filas = await mysql.realizarQuery(
+      `SELECT
+          u.id_usuario,
+          u.nombre_usuario,
+          COUNT(DISTINCT pp.id_partida) AS carreras,
+          COALESCE(SUM(CASE WHEN p.id_ganador = pp.id_usuario THEN 1 ELSE 0 END), 0) AS victorias,
+          COALESCE(SUM(pp.goles), 0) AS goles,
+          COALESCE(SUM(pp.asistencias), 0) AS asistencias,
+          COALESCE(SUM(pp.partidos_jugados), 0) AS partidos_jugados,
+          COALESCE(MAX(pp.grl_maxima), 0) AS mejor_grl,
+          COALESCE(MAX(pp.puntaje_final), 0) AS mejor_puntaje,
+          COALESCE(SUM(pp.puntos_campeon), 0) AS puntos_titulos,
+          (SELECT COUNT(*) FROM TituloGanado tg
+            INNER JOIN ParticipantePartida pp2 ON pp2.id_participante = tg.id_participante
+            INNER JOIN Partida p2 ON p2.id_partida = pp2.id_partida
+           WHERE pp2.id_usuario = u.id_usuario AND p2.estado = 'finalizada'
+             AND tg.id_titulo IS NOT NULL) AS titulos_colectivos,
+          (SELECT COUNT(*) FROM TituloGanado tg
+            INNER JOIN ParticipantePartida pp2 ON pp2.id_participante = tg.id_participante
+            INNER JOIN Partida p2 ON p2.id_partida = pp2.id_partida
+           WHERE pp2.id_usuario = u.id_usuario AND p2.estado = 'finalizada'
+             AND tg.id_titulo_internacional IS NOT NULL) AS titulos_internacionales,
+          (SELECT COUNT(*) FROM TituloGanado tg
+            INNER JOIN ParticipantePartida pp2 ON pp2.id_participante = tg.id_participante
+            INNER JOIN Partida p2 ON p2.id_partida = pp2.id_partida
+           WHERE pp2.id_usuario = u.id_usuario AND p2.estado = 'finalizada'
+             AND tg.id_titulo_individual IS NOT NULL) AS titulos_individuales
+       FROM Usuario u
+       INNER JOIN ParticipantePartida pp ON pp.id_usuario = u.id_usuario
+       INNER JOIN Partida p ON p.id_partida = pp.id_partida
+       WHERE p.estado = 'finalizada'
+       GROUP BY u.id_usuario, u.nombre_usuario
+       ORDER BY victorias DESC, mejor_puntaje DESC, goles DESC`
+    );
+
+    const historico = filas.map((fila, indice) => ({
+      ...fila,
+      puesto: indice + 1,
+      titulos_totales:
+        Number(fila.titulos_colectivos) +
+        Number(fila.titulos_internacionales) +
+        Number(fila.titulos_individuales)
+    }));
+
+    return res.status(200).json({
+      idUsuario: Number(req.session.usuario.id_usuario),
+      historico
+    });
+  } catch (error) {
+    console.error("Error al obtener el histórico:", error);
+
+    return res.status(500).json({ error: "No se pudo obtener el histórico" });
+  }
+});
+
+// Resumen histórico del usuario logueado: carreras jugadas, victorias
+// y su mejor carrera. Se muestra arriba de la tabla del ranking.
+app.get("/ranking/mi-resumen", async (req, res) => {
+  try {
+    if (!req.session.usuario) {
+      return res.status(401).json({ error: "Tenés que iniciar sesión" });
+    }
+
+    const idUsuario = Number(req.session.usuario.id_usuario);
+
+    const resumen = await mysql.realizarQuery(
+      `SELECT
+          COUNT(*) AS carreras,
+          COALESCE(SUM(CASE WHEN p.id_ganador = pp.id_usuario THEN 1 ELSE 0 END), 0) AS victorias,
+          COALESCE(MAX(pp.puntaje_final), 0) AS mejor_puntaje,
+          COALESCE(MAX(pp.grl_maxima), 0) AS mejor_grl,
+          COALESCE(SUM(pp.goles), 0) AS goles_totales,
+          COALESCE(SUM(pp.asistencias), 0) AS asistencias_totales
+       FROM ParticipantePartida pp
+       INNER JOIN Partida p
+          ON p.id_partida = pp.id_partida
+       WHERE pp.id_usuario = ?
+         AND p.estado = 'finalizada'`,
+      [idUsuario]
+    );
+
+    return res.status(200).json(resumen[0] ?? {});
+  } catch (error) {
+    console.error("Error al obtener el resumen del jugador:", error);
+
+    return res.status(500).json({ error: "No se pudo obtener el resumen" });
+  }
+});
+
+//
+// ============================================================================
+// RUTAS DEL PANEL DE ADMINISTRACIÓN
+// Todas requieren sesión iniciada con rol "admin" (middleware requireAdmin).
+// ============================================================================
+//
+
+//
+// GESTIÓN DE USUARIOS
+//
+
+// LISTAR USUARIOS (sin mostrar contraseñas)
+app.get("/admin/usuarios", requireAdmin, async (req, res) => {
+  try {
+    const usuarios = await mysql.realizarQuery(
+      `SELECT id_usuario, nombre_usuario, email, rol, fecha_registro
+       FROM Usuario
+       ORDER BY id_usuario ASC`
+    );
+
+    res.status(200).json(usuarios);
+  } catch (error) {
+    console.error("Error al listar usuarios:", error);
+
+    res.status(500).json({
+      error: "Error al obtener los usuarios"
+    });
+  }
+});
+
+// CONSULTAR UN USUARIO
+app.get("/admin/usuarios/:idUsuario", requireAdmin, async (req, res) => {
+  try {
+    const idUsuario = Number(req.params.idUsuario);
+
+    if (!Number.isInteger(idUsuario) || idUsuario <= 0) {
+      return res.status(400).json({
+        error: "Identificador de usuario inválido"
+      });
+    }
+
+    const usuarios = await mysql.realizarQuery(
+      `SELECT id_usuario, nombre_usuario, email, rol, fecha_registro
+       FROM Usuario
+       WHERE id_usuario = ?`,
+      [idUsuario]
+    );
+
+    if (usuarios.length === 0) {
+      return res.status(404).json({
+        error: "El usuario no existe"
+      });
+    }
+
+    res.status(200).json(usuarios[0]);
+  } catch (error) {
+    console.error("Error al consultar usuario:", error);
+
+    res.status(500).json({
+      error: "Error al obtener el usuario"
+    });
+  }
+});
+
+// MODIFICAR UN USUARIO (nombre, email y/o rol)
+app.put("/admin/usuarios/:idUsuario", requireAdmin, async (req, res) => {
+  try {
+    const idUsuario = Number(req.params.idUsuario);
+    const { nombre_usuario, email, rol } = req.body;
+
+    if (!Number.isInteger(idUsuario) || idUsuario <= 0) {
+      return res.status(400).json({
+        error: "Identificador de usuario inválido"
+      });
+    }
+
+    const usuarios = await mysql.realizarQuery(
+      "SELECT id_usuario, rol FROM Usuario WHERE id_usuario = ?",
+      [idUsuario]
+    );
+
+    if (usuarios.length === 0) {
+      return res.status(404).json({
+        error: "El usuario no existe"
+      });
+    }
+
+    // No permitimos que el admin quite su propio rol admin
+    // ni se elimine a sí mismo si es el único administrador.
+    if (usuarios[0].rol === "admin" && usuarios[0].id_usuario === req.session.usuario.id_usuario) {
+      if (rol && rol !== "admin") {
+        return res.status(400).json({
+          error: "No podés quitarte tu propio rol de administrador"
+        });
+      }
+    }
+
+    if (rol && rol !== "jugador" && rol !== "admin") {
+      return res.status(400).json({
+        error: "El rol solo puede ser jugador o admin"
+      });
+    }
+
+    const campos = [];
+    const valores = [];
+
+    if (nombre_usuario !== undefined) {
+      const nombre = String(nombre_usuario).trim();
+      if (!nombre || nombre.length > 50) {
+        return res.status(400).json({
+          error: "El nombre de usuario debe tener entre 1 y 50 caracteres"
+        });
+      }
+      campos.push("nombre_usuario = ?");
+      valores.push(nombre);
+    }
+
+    if (email !== undefined) {
+      const correo = String(email).trim().toLowerCase();
+      if (!correo || correo.length > 100) {
+        return res.status(400).json({
+          error: "El email debe tener entre 1 y 100 caracteres"
+        });
+      }
+
+      // Verificamos que el nuevo email no lo use otro usuario.
+      const emailEnUso = await mysql.realizarQuery(
+        "SELECT id_usuario FROM Usuario WHERE email = ? AND id_usuario <> ?",
+        [correo, idUsuario]
+      );
+
+      if (emailEnUso.length > 0) {
+        return res.status(400).json({
+          error: "Ese email ya está registrado por otro usuario"
+        });
+      }
+
+      campos.push("email = ?");
+      valores.push(correo);
+    }
+
+    if (rol !== undefined) {
+      campos.push("rol = ?");
+      valores.push(rol);
+    }
+
+    if (campos.length === 0) {
+      return res.status(400).json({
+        error: "No hay datos para modificar"
+      });
+    }
+
+    valores.push(idUsuario);
+
+    await mysql.realizarQuery(
+      `UPDATE Usuario SET ${campos.join(", ")} WHERE id_usuario = ?`,
+      valores
+    );
+
+    res.status(200).json({
+      mensaje: "Usuario modificado correctamente"
+    });
+  } catch (error) {
+    console.error("Error al modificar usuario:", error);
+
+    res.status(500).json({
+      error: "Error al modificar el usuario"
+    });
+  }
+});
+
+// ELIMINAR UN USUARIO
+app.delete("/admin/usuarios/:idUsuario", requireAdmin, async (req, res) => {
+  try {
+    const idUsuario = Number(req.params.idUsuario);
+
+    if (!Number.isInteger(idUsuario) || idUsuario <= 0) {
+      return res.status(400).json({
+        error: "Identificador de usuario inválido"
+      });
+    }
+
+    if (idUsuario === Number(req.session.usuario.id_usuario)) {
+      return res.status(400).json({
+        error: "No podés eliminar tu propia cuenta"
+      });
+    }
+
+    const usuarios = await mysql.realizarQuery(
+      "SELECT id_usuario FROM Usuario WHERE id_usuario = ?",
+      [idUsuario]
+    );
+
+    if (usuarios.length === 0) {
+      return res.status(404).json({
+        error: "El usuario no existe"
+      });
+    }
+
+    await mysql.realizarQuery(
+      "DELETE FROM Usuario WHERE id_usuario = ?",
+      [idUsuario]
+    );
+
+    res.status(200).json({
+      mensaje: "Usuario eliminado correctamente"
+    });
+  } catch (error) {
+    console.error("Error al eliminar usuario:", error);
+
+    // Si el usuario participó de partidas, la clave foránea impide el borrado.
+    if (error && error.errno === 1451) {
+      return res.status(409).json({
+        error: "El usuario participa de partidas registradas y no puede eliminarse"
+      });
+    }
+
+    res.status(500).json({
+      error: "Error al eliminar el usuario"
+    });
+  }
+});
+
+//
+// GESTIÓN DE EVENTOS
+//
+
+// LISTAR EVENTOS
+app.get("/admin/eventos", requireAdmin, async (req, res) => {
+  try {
+    const eventos = await mysql.realizarQuery(
+      `SELECT id_evento, nombre, descripcion, categoria,
+              efecto_fama, efecto_plata, efecto_idolatria,
+              bloquea_avance, peso, turnos_perdidos,
+              temporada_minima, temporada_maxima,
+              requiere_lesion, requiere_seleccion,
+              bloquea_si_lesionado, cooldown_temporadas
+       FROM Evento
+       ORDER BY id_evento ASC`
+    );
+
+    res.status(200).json(eventos);
+  } catch (error) {
+    console.error("Error al listar eventos:", error);
+
+    res.status(500).json({
+      error: "Error al obtener los eventos"
+    });
+  }
+});
+
+// CONSULTAR UN EVENTO
+app.get("/admin/eventos/:idEvento", requireAdmin, async (req, res) => {
+  try {
+    const idEvento = Number(req.params.idEvento);
+
+    if (!Number.isInteger(idEvento) || idEvento <= 0) {
+      return res.status(400).json({
+        error: "Identificador de evento inválido"
+      });
+    }
+
+    const eventos = await mysql.realizarQuery(
+      "SELECT * FROM Evento WHERE id_evento = ?",
+      [idEvento]
+    );
+
+    if (eventos.length === 0) {
+      return res.status(404).json({
+        error: "El evento no existe"
+      });
+    }
+
+    res.status(200).json(eventos[0]);
+  } catch (error) {
+    console.error("Error al consultar evento:", error);
+
+    res.status(500).json({
+      error: "Error al obtener el evento"
+    });
+  }
+});
+
+// CREAR UN EVENTO
+app.post("/admin/eventos", requireAdmin, async (req, res) => {
+  try {
+    const {
+      nombre, descripcion, categoria,
+      efecto_fama, efecto_plata, efecto_idolatria,
+      bloquea_avance, peso, turnos_perdidos
+    } = req.body;
+
+    if (!nombre || !descripcion || !categoria) {
+      return res.status(400).json({
+        error: "Faltan datos obligatorios del evento (nombre, descripcion, categoria)"
+      });
+    }
+
+    const nombreEvento = String(nombre).trim();
+    const descripcionEvento = String(descripcion).trim();
+    const categoriaEvento = String(categoria).trim();
+
+    if (nombreEvento.length > 100) {
+      return res.status(400).json({
+        error: "El nombre no puede superar los 100 caracteres"
+      });
+    }
+
+    // Verificamos que no exista otro evento con el mismo nombre.
+    const eventoExistente = await mysql.realizarQuery(
+      "SELECT id_evento FROM Evento WHERE nombre = ?",
+      [nombreEvento]
+    );
+
+    if (eventoExistente.length > 0) {
+      return res.status(400).json({
+        error: "Ya existe un evento con ese nombre"
+      });
+    }
+
+    const idEvento = await mysql.realizarQueryInsert(
+      `INSERT INTO Evento
+        (nombre, descripcion, categoria,
+         efecto_fama, efecto_plata, efecto_idolatria,
+         bloquea_avance, peso, turnos_perdidos)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        nombreEvento,
+        descripcionEvento,
+        categoriaEvento,
+        Number(efecto_fama) || 0,
+        Number(efecto_plata) || 0,
+        Number(efecto_idolatria) || 0,
+        bloquea_avance ? 1 : 0,
+        Number(peso) > 0 ? Number(peso) : 10,
+        Math.max(0, Number(turnos_perdidos) || 0)
+      ]
+    );
+
+    res.status(201).json({
+      mensaje: "Evento creado correctamente",
+      id_evento: idEvento
+    });
+  } catch (error) {
+    console.error("Error al crear evento:", error);
+
+    res.status(500).json({
+      error: "Error al crear el evento"
+    });
+  }
+});
+
+// MODIFICAR UN EVENTO
+app.put("/admin/eventos/:idEvento", requireAdmin, async (req, res) => {
+  try {
+    const idEvento = Number(req.params.idEvento);
+
+    if (!Number.isInteger(idEvento) || idEvento <= 0) {
+      return res.status(400).json({
+        error: "Identificador de evento inválido"
+      });
+    }
+
+    const eventos = await mysql.realizarQuery(
+      "SELECT id_evento FROM Evento WHERE id_evento = ?",
+      [idEvento]
+    );
+
+    if (eventos.length === 0) {
+      return res.status(404).json({
+        error: "El evento no existe"
+      });
+    }
+
+    // Armamos dinámicamente solo los campos que llegaron en el pedido.
+    const camposPermitidos = {
+      nombre: "nombre",
+      descripcion: "descripcion",
+      categoria: "categoria",
+      efecto_fama: "efecto_fama",
+      efecto_plata: "efecto_plata",
+      efecto_idolatria: "efecto_idolatria",
+      bloquea_avance: "bloquea_avance",
+      peso: "peso",
+      turnos_perdidos: "turnos_perdidos"
+    };
+
+    const asignaciones = [];
+    const valores = [];
+
+    for (const [clave, columna] of Object.entries(camposPermitidos)) {
+      if (req.body[clave] === undefined) continue;
+
+      if (clave === "nombre") {
+        const nombreEvento = String(req.body.nombre).trim();
+        if (!nombreEvento || nombreEvento.length > 100) {
+          return res.status(400).json({
+            error: "El nombre debe tener entre 1 y 100 caracteres"
+          });
+        }
+
+        const repetido = await mysql.realizarQuery(
+          "SELECT id_evento FROM Evento WHERE nombre = ? AND id_evento <> ?",
+          [nombreEvento, idEvento]
+        );
+
+        if (repetido.length > 0) {
+          return res.status(400).json({
+            error: "Ya existe otro evento con ese nombre"
+          });
+        }
+
+        asignaciones.push(`${columna} = ?`);
+        valores.push(nombreEvento);
+        continue;
+      }
+
+      if (clave === "descripcion" || clave === "categoria") {
+        const texto = String(req.body[clave]).trim();
+        if (!texto) {
+          return res.status(400).json({
+            error: `El campo ${clave} no puede quedar vacío`
+          });
+        }
+
+        asignaciones.push(`${columna} = ?`);
+        valores.push(texto);
+        continue;
+      }
+
+      // Campos numéricos / booleanos.
+      if (clave === "bloquea_avance") {
+        asignaciones.push(`${columna} = ?`);
+        valores.push(req.body[clave] ? 1 : 0);
+      } else {
+        asignaciones.push(`${columna} = ?`);
+        valores.push(Number(req.body[clave]) || 0);
+      }
+    }
+
+    if (asignaciones.length === 0) {
+      return res.status(400).json({
+        error: "No hay datos para modificar"
+      });
+    }
+
+    valores.push(idEvento);
+
+    await mysql.realizarQuery(
+      `UPDATE Evento SET ${asignaciones.join(", ")} WHERE id_evento = ?`,
+      valores
+    );
+
+    res.status(200).json({
+      mensaje: "Evento modificado correctamente"
+    });
+  } catch (error) {
+    console.error("Error al modificar evento:", error);
+
+    res.status(500).json({
+      error: "Error al modificar el evento"
+    });
+  }
+});
+
+// ELIMINAR UN EVENTO
+app.delete("/admin/eventos/:idEvento", requireAdmin, async (req, res) => {
+  try {
+    const idEvento = Number(req.params.idEvento);
+
+    if (!Number.isInteger(idEvento) || idEvento <= 0) {
+      return res.status(400).json({
+        error: "Identificador de evento inválido"
+      });
+    }
+
+    const eventos = await mysql.realizarQuery(
+      "SELECT id_evento FROM Evento WHERE id_evento = ?",
+      [idEvento]
+    );
+
+    if (eventos.length === 0) {
+      return res.status(404).json({
+        error: "El evento no existe"
+      });
+    }
+
+    // No se puede eliminar si ya ocurrió en alguna partida (clave foránea).
+    await mysql.realizarQuery(
+      "DELETE FROM Evento WHERE id_evento = ?",
+      [idEvento]
+    );
+
+    res.status(200).json({
+      mensaje: "Evento eliminado correctamente"
+    });
+  } catch (error) {
+    console.error("Error al eliminar evento:", error);
+
+    if (error && error.errno === 1451) {
+      return res.status(409).json({
+        error: "El evento ya ocurrió en partidas registradas y no puede eliminarse"
+      });
+    }
+
+    res.status(500).json({
+      error: "Error al eliminar el evento"
+    });
+  }
+});
+
+//
+// GESTIÓN DE TÍTULOS (locales/nacionales, individuales e internacionales)
+// Solo permite consultar, modificar y eliminar (no crear) desde el panel.
+//
+
+// Helpers compartidos por las tres tablas de títulos.
+// Cada tabla tiene su propio id y columnas particulares.
+const TABLAS_TITULOS = {
+  nacionales: {
+    tabla: "Titulo",
+    id: "id_titulo",
+    camposTexto: ["nombre", "pais", "imagen"],
+    camposNumero: ["puntos_campeon", "prestigio"]
+  },
+  individuales: {
+    tabla: "TituloIndividual",
+    id: "id_titulo_individual",
+    camposTexto: ["nombre", "imagen"],
+    camposNumero: ["puntos_campeon", "prestigio"]
+  },
+  internacionales: {
+    tabla: "TituloInternacional",
+    id: "id_titulo_internacional",
+    camposTexto: ["nombre", "continente", "imagen"],
+    camposNumero: ["puntos_campeon", "prestigio"]
+  }
+};
+
+// Valida y normaliza los campos recibidos según la tabla.
+// Devuelve { asignaciones, valores, error }.
+function armarCamposTitulo(config, cuerpo) {
+  const asignaciones = [];
+  const valores = [];
+
+  for (const campo of config.camposTexto) {
+    if (cuerpo[campo] === undefined) continue;
+
+    const texto = String(cuerpo[campo]).trim();
+
+    // nombre y continente son obligatorios; pais e imagen pueden quedar vacíos.
+    const obligatorio = campo === "nombre" || campo === "continente";
+    if (obligatorio && !texto) {
+      return { error: `El campo ${campo} no puede quedar vacío` };
+    }
+
+    asignaciones.push(`${campo} = ?`);
+    valores.push(texto === "" ? null : texto);
+  }
+
+  for (const campo of config.camposNumero) {
+    if (cuerpo[campo] === undefined) continue;
+
+    const numero = Number(cuerpo[campo]);
+    if (!Number.isFinite(numero)) {
+      return { error: `El campo ${campo} debe ser un número` };
+    }
+
+    asignaciones.push(`${campo} = ?`);
+    valores.push(campo === "puntos_campeon" ? Math.trunc(numero) : numero);
+  }
+
+  return { asignaciones, valores };
+}
+
+// LISTAR TÍTULOS
+app.get("/admin/titulos/:tipo", requireAdmin, async (req, res) => {
+  try {
+    const config = TABLAS_TITULOS[req.params.tipo];
+
+    if (!config) {
+      return res.status(400).json({
+        error: "Tipo de título inválido"
+      });
+    }
+
+    const titulos = await mysql.realizarQuery(
+      `SELECT * FROM ${config.tabla} ORDER BY ${config.id} ASC`
+    );
+
+    res.status(200).json(titulos);
+  } catch (error) {
+    console.error("Error al listar títulos:", error);
+
+    res.status(500).json({
+      error: "Error al obtener los títulos"
+    });
+  }
+});
+
+// CONSULTAR UN TÍTULO
+app.get("/admin/titulos/:tipo/:id", requireAdmin, async (req, res) => {
+  try {
+    const config = TABLAS_TITULOS[req.params.tipo];
+    const id = Number(req.params.id);
+
+    if (!config) {
+      return res.status(400).json({ error: "Tipo de título inválido" });
+    }
+
+    if (!Number.isInteger(id) || id <= 0) {
+      return res.status(400).json({ error: "Identificador de título inválido" });
+    }
+
+    const titulos = await mysql.realizarQuery(
+      `SELECT * FROM ${config.tabla} WHERE ${config.id} = ?`,
+      [id]
+    );
+
+    if (titulos.length === 0) {
+      return res.status(404).json({ error: "El título no existe" });
+    }
+
+    res.status(200).json(titulos[0]);
+  } catch (error) {
+    console.error("Error al consultar título:", error);
+
+    res.status(500).json({
+      error: "Error al obtener el título"
+    });
+  }
+});
+
+// MODIFICAR UN TÍTULO
+app.put("/admin/titulos/:tipo/:id", requireAdmin, async (req, res) => {
+  try {
+    const config = TABLAS_TITULOS[req.params.tipo];
+    const id = Number(req.params.id);
+
+    if (!config) {
+      return res.status(400).json({ error: "Tipo de título inválido" });
+    }
+
+    if (!Number.isInteger(id) || id <= 0) {
+      return res.status(400).json({ error: "Identificador de título inválido" });
+    }
+
+    const existentes = await mysql.realizarQuery(
+      `SELECT ${config.id} FROM ${config.tabla} WHERE ${config.id} = ?`,
+      [id]
+    );
+
+    if (existentes.length === 0) {
+      return res.status(404).json({ error: "El título no existe" });
+    }
+
+    const campos = armarCamposTitulo(config, req.body);
+
+    if (campos.error) {
+      return res.status(400).json({ error: campos.error });
+    }
+
+    if (campos.asignaciones.length === 0) {
+      return res.status(400).json({ error: "No hay datos para modificar" });
+    }
+
+    // El nombre no puede repetirse dentro de la misma tabla.
+    if (req.body.nombre !== undefined) {
+      const repetido = await mysql.realizarQuery(
+        `SELECT ${config.id} FROM ${config.tabla} WHERE nombre = ? AND ${config.id} <> ?`,
+        [String(req.body.nombre).trim(), id]
+      );
+
+      if (repetido.length > 0) {
+        return res.status(400).json({
+          error: "Ya existe otro título con ese nombre"
+        });
+      }
+    }
+
+    const valores = [...campos.valores, id];
+
+    await mysql.realizarQuery(
+      `UPDATE ${config.tabla} SET ${campos.asignaciones.join(", ")} WHERE ${config.id} = ?`,
+      valores
+    );
+
+    res.status(200).json({
+      mensaje: "Título modificado correctamente"
+    });
+  } catch (error) {
+    console.error("Error al modificar título:", error);
+
+    res.status(500).json({
+      error: "Error al modificar el título"
+    });
+  }
+});
+
+// ELIMINAR UN TÍTULO
+app.delete("/admin/titulos/:tipo/:id", requireAdmin, async (req, res) => {
+  try {
+    const config = TABLAS_TITULOS[req.params.tipo];
+    const id = Number(req.params.id);
+
+    if (!config) {
+      return res.status(400).json({ error: "Tipo de título inválido" });
+    }
+
+    if (!Number.isInteger(id) || id <= 0) {
+      return res.status(400).json({ error: "Identificador de título inválido" });
+    }
+
+    const existentes = await mysql.realizarQuery(
+      `SELECT ${config.id} FROM ${config.tabla} WHERE ${config.id} = ?`,
+      [id]
+    );
+
+    if (existentes.length === 0) {
+      return res.status(404).json({ error: "El título no existe" });
+    }
+
+    await mysql.realizarQuery(
+      `DELETE FROM ${config.tabla} WHERE ${config.id} = ?`,
+      [id]
+    );
+
+    res.status(200).json({
+      mensaje: "Título eliminado correctamente"
+    });
+  } catch (error) {
+    console.error("Error al eliminar título:", error);
+
+    // El título ya fue otorgado en alguna partida (clave foránea).
+    if (error && error.errno === 1451) {
+      return res.status(409).json({
+        error: "El título ya fue ganado en partidas registradas y no puede eliminarse"
+      });
+    }
+
+    res.status(500).json({
+      error: "Error al eliminar el título"
+    });
+  }
+});
+
+//
+// GESTIÓN DE CLUBES Y LIGAS (solo modificar y eliminar)
+//
+
+// LISTAR CLUBES
+app.get("/admin/clubes", requireAdmin, async (req, res) => {
+  try {
+    const clubes = await mysql.realizarQuery(
+      `SELECT id_club, nombre, liga, jerarquia, copa_internacional, descripcion
+       FROM Club
+       ORDER BY liga ASC, nombre ASC`
+    );
+
+    res.status(200).json(clubes);
+  } catch (error) {
+    console.error("Error al listar clubes:", error);
+
+    res.status(500).json({
+      error: "Error al obtener los clubes"
+    });
+  }
+});
+
+// MODIFICAR UN CLUB
+app.put("/admin/clubes/:idClub", requireAdmin, async (req, res) => {
+  try {
+    const idClub = Number(req.params.idClub);
+
+    if (!Number.isInteger(idClub) || idClub <= 0) {
+      return res.status(400).json({ error: "Identificador de club inválido" });
+    }
+
+    const existentes = await mysql.realizarQuery(
+      "SELECT id_club FROM Club WHERE id_club = ?",
+      [idClub]
+    );
+
+    if (existentes.length === 0) {
+      return res.status(404).json({ error: "El club no existe" });
+    }
+
+    const { nombre, liga, jerarquia, copa_internacional, descripcion } = req.body;
+    const asignaciones = [];
+    const valores = [];
+
+    if (nombre !== undefined) {
+      const texto = String(nombre).trim();
+
+      if (!texto) {
+        return res.status(400).json({
+          error: "El nombre del club no puede quedar vacío"
+        });
+      }
+
+      asignaciones.push("nombre = ?");
+      valores.push(texto);
+    }
+
+    if (liga !== undefined) {
+      const texto = String(liga).trim();
+
+      asignaciones.push("liga = ?");
+      valores.push(texto === "" ? null : texto);
+    }
+
+    if (jerarquia !== undefined) {
+      const numero = Number(jerarquia);
+
+      if (!Number.isFinite(numero)) {
+        return res.status(400).json({
+          error: "La jerarquía debe ser un número"
+        });
+      }
+
+      asignaciones.push("jerarquia = ?");
+      valores.push(Math.trunc(numero));
+    }
+
+    if (copa_internacional !== undefined) {
+      asignaciones.push("copa_internacional = ?");
+      valores.push(copa_internacional ? 1 : 0);
+    }
+
+    if (descripcion !== undefined) {
+      asignaciones.push("descripcion = ?");
+      valores.push(String(descripcion).trim());
+    }
+
+    if (asignaciones.length === 0) {
+      return res.status(400).json({ error: "No hay datos para modificar" });
+    }
+
+    valores.push(idClub);
+
+    await mysql.realizarQuery(
+      `UPDATE Club SET ${asignaciones.join(", ")} WHERE id_club = ?`,
+      valores
+    );
+
+    res.status(200).json({
+      mensaje: "Club modificado correctamente"
+    });
+  } catch (error) {
+    console.error("Error al modificar club:", error);
+
+    res.status(500).json({
+      error: "Error al modificar el club"
+    });
+  }
+});
+
+// ELIMINAR UN CLUB
+app.delete("/admin/clubes/:idClub", requireAdmin, async (req, res) => {
+  try {
+    const idClub = Number(req.params.idClub);
+
+    if (!Number.isInteger(idClub) || idClub <= 0) {
+      return res.status(400).json({ error: "Identificador de club inválido" });
+    }
+
+    const existentes = await mysql.realizarQuery(
+      "SELECT id_club FROM Club WHERE id_club = ?",
+      [idClub]
+    );
+
+    if (existentes.length === 0) {
+      return res.status(404).json({ error: "El club no existe" });
+    }
+
+    await mysql.realizarQuery(
+      "DELETE FROM Club WHERE id_club = ?",
+      [idClub]
+    );
+
+    res.status(200).json({
+      mensaje: "Club eliminado correctamente"
+    });
+  } catch (error) {
+    console.error("Error al eliminar club:", error);
+
+    if (error && error.errno === 1451) {
+      return res.status(409).json({
+        error: "El club está asociado a partidas registradas y no puede eliminarse"
+      });
+    }
+
+    res.status(500).json({
+      error: "Error al eliminar el club"
+    });
+  }
+});
+
+// LISTAR LIGAS (son la columna Club.liga agrupada)
+app.get("/admin/ligas", requireAdmin, async (req, res) => {
+  try {
+    const ligas = await mysql.realizarQuery(
+      `SELECT liga, COUNT(*) AS cantidad_clubes
+       FROM Club
+       WHERE liga IS NOT NULL AND liga <> ''
+       GROUP BY liga
+       ORDER BY liga ASC`
+    );
+
+    res.status(200).json(ligas);
+  } catch (error) {
+    console.error("Error al listar ligas:", error);
+
+    res.status(500).json({
+      error: "Error al obtener las ligas"
+    });
+  }
+});
+
+// RENOMBRAR UNA LIGA (actualiza a todos los clubes que la usan)
+app.put("/admin/ligas/:nombreLiga", requireAdmin, async (req, res) => {
+  try {
+    const nombreLiga = decodeURIComponent(req.params.nombreLiga);
+    const nuevoNombre = String(req.body.nuevo_nombre ?? "").trim();
+
+    if (!nuevoNombre) {
+      return res.status(400).json({
+        error: "El nuevo nombre de la liga no puede quedar vacío"
+      });
+    }
+
+    if (nuevoNombre.length > 100) {
+      return res.status(400).json({
+        error: "El nombre de la liga no puede superar los 100 caracteres"
+      });
+    }
+
+    const clubes = await mysql.realizarQuery(
+      "SELECT id_club FROM Club WHERE liga = ?",
+      [nombreLiga]
+    );
+
+    if (clubes.length === 0) {
+      return res.status(404).json({ error: "La liga no existe" });
+    }
+
+    if (nuevoNombre !== nombreLiga) {
+      const colision = await mysql.realizarQuery(
+        "SELECT id_club FROM Club WHERE liga = ? LIMIT 1",
+        [nuevoNombre]
+      );
+
+      if (colision.length > 0) {
+        return res.status(409).json({
+          error: "Ya existe otra liga con ese nombre"
+        });
+      }
+    }
+
+    await mysql.realizarQuery(
+      "UPDATE Club SET liga = ? WHERE liga = ?",
+      [nuevoNombre, nombreLiga]
+    );
+
+    res.status(200).json({
+      mensaje: `Liga renombrada para ${clubes.length} club(es)`,
+      cantidad_clubes: clubes.length,
+      nombre_ligas: nuevoNombre
+    });
+  } catch (error) {
+    console.error("Error al renombrar liga:", error);
+
+    res.status(500).json({
+      error: "Error al modificar la liga"
+    });
+  }
+});
+
+// ELIMINAR UNA LIGA (deja a los clubes sin liga)
+app.delete("/admin/ligas/:nombreLiga", requireAdmin, async (req, res) => {
+  try {
+    const nombreLiga = decodeURIComponent(req.params.nombreLiga);
+
+    const clubes = await mysql.realizarQuery(
+      "SELECT id_club FROM Club WHERE liga = ?",
+      [nombreLiga]
+    );
+
+    if (clubes.length === 0) {
+      return res.status(404).json({ error: "La liga no existe" });
+    }
+
+    await mysql.realizarQuery(
+      "UPDATE Club SET liga = NULL WHERE liga = ?",
+      [nombreLiga]
+    );
+
+    res.status(200).json({
+      mensaje: `Liga eliminada. ${clubes.length} club(es) quedaron sin liga.`,
+      cantidad_clubes: clubes.length
+    });
+  } catch (error) {
+    console.error("Error al eliminar liga:", error);
+
+    res.status(500).json({
+      error: "Error al eliminar la liga"
+    });
+  }
+});
+
+//
+// CONSULTA DE PARTIDAS (solo lectura para el admin)
+//
+
+// LISTAR TODAS LAS PARTIDAS
+app.get("/admin/partidas", requireAdmin, async (req, res) => {
+  try {
+    const partidas = await mysql.realizarQuery(
+      `SELECT
+          p.id_partida,
+          p.nombre_sala,
+          p.estado,
+          p.fecha_inicio,
+          p.fecha_fin,
+          u.nombre_usuario AS nombre_ganador,
+          COUNT(pp.id_participante) AS cantidad_participantes
+       FROM Partida p
+       LEFT JOIN Usuario u ON u.id_usuario = p.id_ganador
+       LEFT JOIN ParticipantePartida pp ON pp.id_partida = p.id_partida
+       GROUP BY p.id_partida, p.nombre_sala, p.estado,
+                p.fecha_inicio, p.fecha_fin, u.nombre_usuario
+       ORDER BY p.fecha_inicio DESC`
+    );
+
+    res.status(200).json(partidas);
+  } catch (error) {
+    console.error("Error al listar partidas:", error);
+
+    res.status(500).json({
+      error: "Error al obtener las partidas"
+    });
+  }
+});
+
+// CONSULTAR EL DETALLE DE UNA PARTIDA
+app.get("/admin/partidas/:idPartida", requireAdmin, async (req, res) => {
+  try {
+    const idPartida = Number(req.params.idPartida);
+
+    if (!Number.isInteger(idPartida) || idPartida <= 0) {
+      return res.status(400).json({
+        error: "Identificador de partida inválido"
+      });
+    }
+
+    const partidas = await mysql.realizarQuery(
+      `SELECT
+          p.id_partida,
+          p.nombre_sala,
+          p.estado,
+          p.fecha_inicio,
+          p.fecha_fin,
+          u.nombre_usuario AS nombre_ganador
+       FROM Partida p
+       LEFT JOIN Usuario u ON u.id_usuario = p.id_ganador
+       WHERE p.id_partida = ?`,
+      [idPartida]
+    );
+
+    if (partidas.length === 0) {
+      return res.status(404).json({
+        error: "La partida no existe"
+      });
+    }
+
+    // Participantes y sus estadísticas finales.
+    const participantes = await mysql.realizarQuery(
+      `SELECT
+          pp.id_participante,
+          pp.id_usuario,
+          u.nombre_usuario,
+          pp.nombre_leyenda,
+          pp.posicion_actual,
+          pp.goles,
+          pp.asistencias,
+          pp.fama,
+          pp.plata,
+          pp.idolatria,
+          pp.turno
+       FROM ParticipantePartida pp
+       INNER JOIN Usuario u ON u.id_usuario = pp.id_usuario
+       WHERE pp.id_partida = ?`,
+      [idPartida]
+    );
+
+    // Eventos que ocurrieron durante la partida, si la tabla existe.
+    let eventos = [];
+    try {
+      eventos = await mysql.realizarQuery(
+        `SELECT
+            hp.id_evento,
+            e.nombre AS nombre_evento,
+            hp.posicion
+         FROM HistorialEvento hp
+         INNER JOIN Evento e ON e.id_evento = hp.id_evento
+         WHERE hp.id_participante IN (
+             SELECT id_participante FROM ParticipantePartida WHERE id_partida = ?
+         )
+         ORDER BY hp.posicion ASC`,
+        [idPartida]
+      );
+    } catch (errorHistorial) {
+      // Si la tabla de historial no existe en el esquema, seguimos sin eventos.
+      eventos = [];
+    }
+
+    res.status(200).json({
+      partida: partidas[0],
+      participantes,
+      eventos
+    });
+  } catch (error) {
+    console.error("Error al consultar partida:", error);
+
+    res.status(500).json({
+      error: "Error al obtener la partida"
+    });
+  }
+});
