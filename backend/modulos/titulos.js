@@ -195,9 +195,12 @@ function elegibleTituloInternacional({
 // Títulos individuales.
 //
 // EXCLUIDOS_DEL_SORTEO: registros históricos duplicados que NO se vuelven a
-// sortear (se conservan para el historial de TituloGanado ya existente):
+// sortear:
 //   1  "Balón de Oro (histórico)" (duplicado del 28, escala vieja de puntos)
 //   3  "Bota de Oro (histórico)" (duplicado del 31)
+// Con el historial de partidas vaciado ya no tienen TituloGanado y se pueden
+// borrar desde el panel; la exclusión queda como defensa por si alguna base
+// vieja los conserva.
 // Los premios de ARQUEROS (8, 16, 30) fueron ELIMINADOS de la base por la
 // migración (docs/auditoria_titulos_migracion.sql §0): el juego no registra
 // la posición del futbolista. El filtro por nombre (guante de oro / yashin /
