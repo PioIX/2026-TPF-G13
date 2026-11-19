@@ -3549,7 +3549,8 @@ async function procesarTitulosTemporada({
   //   - Arqueros: excluidos (el juego no registra la posición).
   //   - Juveniles: Golden Boy/Kopa sub-21.
   //   - UEFA: club europeo.
-  //   - Duplicados históricos (1, 3): congelados, conservan historial.
+  //   - Duplicados históricos (1, 3): excluidos del sorteo (defensa por si
+  //     la base todavía los conserva; sin historial ya no hay por qué).
   const edadJugador = Math.max(18, Number(edad) || 18);
   const golPorPartido = golesNuevos / Math.max(1, partidosJugadosTemporada);
   const asistenciaPorPartido =
