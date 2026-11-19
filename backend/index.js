@@ -1827,7 +1827,9 @@ io.on("connection", (socket) => {
           // Curva: 0.00 -> 5.5 | 0.30 -> ~6.3 | 0.60 -> ~7.1 |
           // 0.90 -> ~7.9 | 1.20+ -> 8.7+ (nivel crack: ~0.9-1.2 G+A/90).
           // Saturación: más de ~1.4 por partido casi no suma más.
-          const ajusteVolumen = Math.min(3.2, 2.7 * Math.pow(gaPorPartido, 0.85));
+          // El tope de saturación (3.8) deja lugar a notas de 9/10 para
+          // temporadas de crack real, en vez de encerrarse en ~8.4.
+          const ajusteVolumen = Math.min(4.6, 3.1 * Math.pow(gaPorPartido, 0.85));
 
           // Ajuste por nivel: hasta ±0.5, nunca decide solo.
           const ajusteNivel = Math.max(
@@ -1837,10 +1839,12 @@ io.on("connection", (socket) => {
 
           // Techo por disponibilidad: temporada completa = 1.0;
           // media temporada baja el techo ~1.2; lesión grave, ~2.
+          // Con 3.5 el techo máximo es 9.0 (antes 8.5): una temporada
+          // completa y productiva puede aspirar al 9, no al 8.5 fijo.
           const factorDisponibilidad = partidosJugadosTemporada /
             PARTIDOS_POR_TEMPORADA;
           const techoPorPartidos =
-            4.5 + 3.0 * Math.min(1, Math.pow(factorDisponibilidad, 0.7)) +
+            4.5 + 3.5 * Math.min(1, Math.pow(factorDisponibilidad, 0.7)) +
             (gaPorPartido > 0 ? 1.0 : 0);
 
           const notaCruda = 5.5 + ajusteVolumen * 0.75 + ajusteNivel;
