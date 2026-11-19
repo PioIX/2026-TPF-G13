@@ -2532,7 +2532,7 @@ io.on("connection", (socket) => {
       const pendientes = await mysql.realizarQuery(
         `SELECT tg.id_titulo_ganado, tg.id_participante, tg.temporada,
                 COALESCE(t.nombre, ti.nombre, tint.nombre) AS nombre_titulo,
-                COALESCE(t.puntos_campeon, ti.puntos_campeon, tint.puntos_campeon) AS puntos_campeon,
+                COALESCE(t.puntos_campeon, ti.puntos_campeon, tint.puntos_campeon, 0) AS puntos_campeon,
                 COALESCE(t.imagen, ti.imagen, tint.imagen) AS imagen_titulo,
                 CASE
                   WHEN tg.id_titulo IS NOT NULL THEN 'colectivo'
@@ -2556,6 +2556,15 @@ io.on("connection", (socket) => {
       }
 
       const tituloPendiente = pendientes[0];
+
+      // Si el título fue eliminado de la base, el JOIN deja el nombre en NULL
+      // y el duelo mostraría un trofeo sin nombre: lo resolvemos antes de seguir.
+      if (!tituloPendiente.nombre_titulo) {
+        socket.emit("errorPartida", {
+          mensaje: "El título en disputa ya no está disponible."
+        });
+        return;
+      }
 
       // El jugador y su rival de la partida.
       const participantes = await mysql.realizarQuery(
@@ -3474,8 +3483,8 @@ async function procesarTitulosTemporada({
     // - De CLUBES: la confederación del CLUB decide la elegibilidad, no el
     //   país del jugador. Un club sudamericano compite por Libertadores /
     //   Sudamericana; un club europeo por Champions / Europa League.
-    // - Mundial de Clubes (anual) e Intercontinental: solo campeones
-    //   continentales (dependencia por historial).
+    // - Copa Intercontinental: solo campeones continentales (dependencia
+    //   por historial).
     // - De SELECCIONES: hay que haber sido realmente CONVOCADO y JUGADO
     //   (desde el caller llega idSeleccion = null si no participó);
     //   continental: la selección debe ser de esa confederación;
@@ -4711,7 +4720,15 @@ app.delete("/admin/titulos/:tipo/:id", requireAdmin, async (req, res) => {
     console.error("Error al eliminar título:", error);
 
     // El título ya fue otorgado en alguna partida (clave foránea).
-    if (error && error.errno === 1451) {
+    // MySQL devuelve 1217 (ER_ROW_IS_REFERENCED) cuando la FK es NO ACTION,
+    // y 1451 (ER_ROW_IS_REFERENCED_2) cuando es RESTRICT: cubrimos ambas.
+    if (
+      error &&
+      (error.errno === 1217 ||
+        error.errno === 1451 ||
+        error.code === "ER_ROW_IS_REFERENCED" ||
+        error.code === "ER_ROW_IS_REFERENCED_2")
+    ) {
       return res.status(409).json({
         error: "El título ya fue ganado en partidas registradas y no puede eliminarse"
       });
