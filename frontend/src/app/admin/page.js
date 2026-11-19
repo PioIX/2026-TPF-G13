@@ -901,6 +901,23 @@ function SeccionEventos() {
 // SECCIÓN: PARTIDAS (solo lectura)
 // ============================================================================
 
+// Los endpoints de /admin devuelven 401 (sin sesión), 403 (sesión sin rol
+// admin) o 404. Si la respuesta no trae un mensaje del backend, se usa uno
+// por código: así no aparece "undefined" ni un error desconcertante.
+function mensajeErrorAdmin(respuesta) {
+    return respuesta.json()
+        .then((datos) => {
+            if (datos && datos.error) return datos.error;
+            throw new Error("sin mensaje");
+        })
+        .catch(() => {
+            if (respuesta.status === 401) return "La sesión expiró: iniciá sesión de nuevo";
+            if (respuesta.status === 403) return "Solo el administrador puede ver esta sección";
+            if (respuesta.status === 404) return "No se encontró el recurso solicitado";
+            return `Error del servidor (HTTP ${respuesta.status})`;
+        });
+}
+
 function SeccionPartidas() {
     const [partidas, setPartidas] = useState([]);
     const [cargando, setCargando] = useState(true);
@@ -921,8 +938,8 @@ function SeccionPartidas() {
         })
             .then((respuesta) => {
                 if (!respuesta.ok) {
-                    return respuesta.json().then((datos) => {
-                        throw new Error(datos.error);
+                    return mensajeErrorAdmin(respuesta).then((mensaje) => {
+                        throw new Error(mensaje);
                     });
                 }
                 return respuesta.json();
@@ -978,8 +995,8 @@ function SeccionPartidas() {
         })
             .then((respuesta) => {
                 if (!respuesta.ok) {
-                    return respuesta.json().then((datos) => {
-                        throw new Error(datos.error);
+                    return mensajeErrorAdmin(respuesta).then((mensaje) => {
+                        throw new Error(mensaje);
                     });
                 }
                 return respuesta.json();
