@@ -1827,7 +1827,9 @@ io.on("connection", (socket) => {
           // Curva: 0.00 -> 5.5 | 0.30 -> ~6.3 | 0.60 -> ~7.1 |
           // 0.90 -> ~7.9 | 1.20+ -> 8.7+ (nivel crack: ~0.9-1.2 G+A/90).
           // Saturación: más de ~1.4 por partido casi no suma más.
-          const ajusteVolumen = Math.min(3.2, 2.7 * Math.pow(gaPorPartido, 0.85));
+          // El tope de saturación (3.8) deja lugar a notas de 9/10 para
+          // temporadas de crack real, en vez de encerrarse en ~8.4.
+          const ajusteVolumen = Math.min(4.6, 3.1 * Math.pow(gaPorPartido, 0.85));
 
           // Ajuste por nivel: hasta ±0.5, nunca decide solo.
           const ajusteNivel = Math.max(
@@ -1837,10 +1839,12 @@ io.on("connection", (socket) => {
 
           // Techo por disponibilidad: temporada completa = 1.0;
           // media temporada baja el techo ~1.2; lesión grave, ~2.
+          // Con 3.5 el techo máximo es 9.0 (antes 8.5): una temporada
+          // completa y productiva puede aspirar al 9, no al 8.5 fijo.
           const factorDisponibilidad = partidosJugadosTemporada /
             PARTIDOS_POR_TEMPORADA;
           const techoPorPartidos =
-            4.5 + 3.0 * Math.min(1, Math.pow(factorDisponibilidad, 0.7)) +
+            4.5 + 3.5 * Math.min(1, Math.pow(factorDisponibilidad, 0.7)) +
             (gaPorPartido > 0 ? 1.0 : 0);
 
           const notaCruda = 5.5 + ajusteVolumen * 0.75 + ajusteNivel;
@@ -2532,7 +2536,7 @@ io.on("connection", (socket) => {
       const pendientes = await mysql.realizarQuery(
         `SELECT tg.id_titulo_ganado, tg.id_participante, tg.temporada,
                 COALESCE(t.nombre, ti.nombre, tint.nombre) AS nombre_titulo,
-                COALESCE(t.puntos_campeon, ti.puntos_campeon, tint.puntos_campeon) AS puntos_campeon,
+                COALESCE(t.puntos_campeon, ti.puntos_campeon, tint.puntos_campeon, 0) AS puntos_campeon,
                 COALESCE(t.imagen, ti.imagen, tint.imagen) AS imagen_titulo,
                 CASE
                   WHEN tg.id_titulo IS NOT NULL THEN 'colectivo'
@@ -2556,6 +2560,15 @@ io.on("connection", (socket) => {
       }
 
       const tituloPendiente = pendientes[0];
+
+      // Si el título fue eliminado de la base, el JOIN deja el nombre en NULL
+      // y el duelo mostraría un trofeo sin nombre: lo resolvemos antes de seguir.
+      if (!tituloPendiente.nombre_titulo) {
+        socket.emit("errorPartida", {
+          mensaje: "El título en disputa ya no está disponible."
+        });
+        return;
+      }
 
       // El jugador y su rival de la partida.
       const participantes = await mysql.realizarQuery(
@@ -3474,8 +3487,8 @@ async function procesarTitulosTemporada({
     // - De CLUBES: la confederación del CLUB decide la elegibilidad, no el
     //   país del jugador. Un club sudamericano compite por Libertadores /
     //   Sudamericana; un club europeo por Champions / Europa League.
-    // - Mundial de Clubes (anual) e Intercontinental: solo campeones
-    //   continentales (dependencia por historial).
+    // - Copa Intercontinental: solo campeones continentales (dependencia
+    //   por historial).
     // - De SELECCIONES: hay que haber sido realmente CONVOCADO y JUGADO
     //   (desde el caller llega idSeleccion = null si no participó);
     //   continental: la selección debe ser de esa confederación;
@@ -3536,7 +3549,8 @@ async function procesarTitulosTemporada({
   //   - Arqueros: excluidos (el juego no registra la posición).
   //   - Juveniles: Golden Boy/Kopa sub-21.
   //   - UEFA: club europeo.
-  //   - Duplicados históricos (1, 3): congelados, conservan historial.
+  //   - Duplicados históricos (1, 3): excluidos del sorteo (defensa por si
+  //     la base todavía los conserva; sin historial ya no hay por qué).
   const edadJugador = Math.max(18, Number(edad) || 18);
   const golPorPartido = golesNuevos / Math.max(1, partidosJugadosTemporada);
   const asistenciaPorPartido =
@@ -4711,7 +4725,15 @@ app.delete("/admin/titulos/:tipo/:id", requireAdmin, async (req, res) => {
     console.error("Error al eliminar título:", error);
 
     // El título ya fue otorgado en alguna partida (clave foránea).
-    if (error && error.errno === 1451) {
+    // MySQL devuelve 1217 (ER_ROW_IS_REFERENCED) cuando la FK es NO ACTION,
+    // y 1451 (ER_ROW_IS_REFERENCED_2) cuando es RESTRICT: cubrimos ambas.
+    if (
+      error &&
+      (error.errno === 1217 ||
+        error.errno === 1451 ||
+        error.code === "ER_ROW_IS_REFERENCED" ||
+        error.code === "ER_ROW_IS_REFERENCED_2")
+    ) {
       return res.status(409).json({
         error: "El título ya fue ganado en partidas registradas y no puede eliminarse"
       });

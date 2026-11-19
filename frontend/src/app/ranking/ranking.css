@@ -97,6 +97,8 @@
     display: flex;
     flex-wrap: wrap;
     gap: 10px;
+    align-self: center;
+    justify-content: flex-end;
 }
 
 .ranking-acciones-encabezado button {
