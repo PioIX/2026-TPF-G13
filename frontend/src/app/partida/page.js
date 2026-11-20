@@ -2,7 +2,7 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { io } from "socket.io-client";
 import Tablero from "@/components/Tablero";
 import Button from "@/components/Button";
@@ -56,6 +56,29 @@ export default function PartidaPage() {
     const temporizadorEventoRef = useRef(null);
     const inicioTiradaRef = useRef(null);
     const eventoPendienteRef = useRef(null);
+    // Mientras el jugador está mirando los popups de su turno, el
+    // turno todavía NO se pasó al rival. Esta bandera se enciende al
+    // tirar el dado y se apaga cuando emitirCierreTurnoSiListo emite
+    // efectivamente "turnoListo" al backend.
+    const [turnoEnCurso, setTurnoEnCurso] = useState(false);
+    // PopupCambioClub tiene su propio ciclo (fetch POST) y no se cierra
+    // solo. Marcamos acá cuándo el jugador ya eligió club para que el
+    // helper de cierre de turno no se quede esperando.
+    const cambioClubEnviadoRef = useRef(false);
+    // Se vuelve true cuando terminó la animación del dado y se intentó
+    // mostrar el popup de evento (haya evento o no). Es la garantía de
+    // que ya pasaron los 4.5 s necesarios para que cualquier popup
+    // aparezca en pantalla; sin esto, el popup de cambio de club (que
+    // se muestra inmediatamente) podría emitir el cierre de turno
+    // antes de que aparezca el popup de evento que le corresponde.
+    const [dadoTerminado, setDadoTerminado] = useState(false);
+    // Cuando un handler (por ejemplo dueloResuelto) quiere pedir el
+    // cierre de turno pero está fuera del scope donde emitirCierreTurnoSiListo
+    // es accesible, incrementa este contador para forzar al useEffect
+    // que sigue a re-evaluar el cierre.
+    const [solicitudCierreTurno, setSolicitudCierreTurno] = useState(0);
+    const pedirCierreTurno = () =>
+        setSolicitudCierreTurno((n) => n + 1);
 
     useEffect(() => {
         if (!idPartida) return;
@@ -143,7 +166,21 @@ export default function PartidaPage() {
                                     setEventoActual(eventoPendienteRef.current);
                                     setMostrarEvento(true);
                                     eventoPendienteRef.current = null;
+                                } else {
+                                    // No hay popup de evento para
+                                    // mostrar (turnoPerdido o dado
+                                    // sin evento): el turno está
+                                    // listo para pasar al rival.
+                                    pedirCierreTurno();
                                 }
+                                // Marcamos que ya pasó el tiempo
+                                // necesario para que cualquier popup
+                                // aparezca en pantalla. Sin esto, el
+                                // popup de cambio de club (que se
+                                // muestra de inmediato) podría emitir
+                                // el cierre de turno antes de que
+                                // aparezca el popup de evento.
+                                setDadoTerminado(true);
                                 temporizadorEventoRef.current = null;
                             }, 1500);
                         }, tiempoRestante);
@@ -188,6 +225,14 @@ export default function PartidaPage() {
                             ? "Tu turno se actualizó."
                             : `El rival sacó un ${estado.resultadoDado}.`
                     );
+                });
+
+                // El turno pasa al rival recién cuando el front emite
+                // "turnoListo". El backend avisa con este evento que ya
+                // podemos actualizar a los jugadores (turno flip).
+                socket.on("turnoActualizado", (estado) => {
+                    if (Number(estado.idPartida) !== Number(idPartida)) return;
+                    setJugadores(estado.jugadores ?? []);
                 });
 
                 // Alguien llegó al casillero 20: la carrera terminó.
@@ -244,6 +289,9 @@ export default function PartidaPage() {
                                 : "Te robaron el título en el duelo. Los puntos de campeón fueron para tu rival."
                         );
                     }
+                    // El turno termina acá: si no quedan otros popups,
+                    // el useEffect de cierre lo va a detectar.
+                    pedirCierreTurno();
                 });
             })
             .catch((error) => {
@@ -277,6 +325,70 @@ export default function PartidaPage() {
         };
     }, [idPartida, router]);
 
+    // Cierra el turno de este jugador: le avisa al backend que pase
+    // el turno al rival. Solo se emite si:
+    //   - Hay un turno en curso (turnoEnCurso = true).
+    //   - Ya pasó el tiempo de la animación del dado (dadoTerminado)
+    //     para garantizar que cualquier popup que tenga que aparecer
+    //     ya tuvo su oportunidad de hacerlo.
+    //   - No quedan popups abiertos (evento / rendimiento / títulos /
+    //     cambio de club / duelo).
+    //   - La partida no terminó.
+    // Se llama explícitamente desde los handlers de cierre de cada
+    // popup y desde el timer que dispara cuando termina la animación
+    // del dado y no hay nada que mostrar (caso turnoPerdido o dado
+    // sin evento).
+    const emitirCierreTurnoSiListo = useCallback(() => {
+        if (!turnoEnCurso) return;
+        if (!dadoTerminado) return;
+        if (partidaTerminada) return;
+
+        const cambioClubBloquea =
+            cambioClubPendiente && !cambioClubEnviadoRef.current;
+
+        const hayPopup =
+            mostrarEvento ||
+            mostrarRendimiento ||
+            mostrarTitulos ||
+            cambioClubBloquea ||
+            dueloActivo;
+
+        if (hayPopup) return;
+
+        socketRef.current?.emit("turnoListo", {
+            idPartida: Number(idPartida)
+        });
+        setTurnoEnCurso(false);
+    }, [
+        turnoEnCurso,
+        dadoTerminado,
+        mostrarEvento,
+        mostrarRendimiento,
+        mostrarTitulos,
+        cambioClubPendiente,
+        dueloActivo,
+        partidaTerminada,
+        idPartida
+    ]);
+
+    // Procesa solicitudes de cierre de turno que llegan desde handlers
+    // que están fuera del scope de emitirCierreTurnoSiListo (por
+    // ejemplo, el listener de dueloResuelto, que vive dentro del
+    // useEffect principal de conexión). El handler incrementa
+    // solicitudCierreTurno con pedirCierreTurno() y este useEffect lo
+    // procesa cuando ya no quedan popups abiertos. También se vuelve
+    // a ejecutar cuando cambia dadoTerminado, para cubrir el caso en
+    // que se pidió el cierre antes de que terminara la animación del
+    // dado.
+    useEffect(() => {
+        if (solicitudCierreTurno === 0) return;
+        emitirCierreTurnoSiListo();
+    }, [
+        solicitudCierreTurno,
+        dadoTerminado,
+        emitirCierreTurnoSiListo
+    ]);
+
     function lanzarDado() {
         if (!socketRef.current || !conectado || !esMiTurno) {
             return;
@@ -288,6 +400,12 @@ export default function PartidaPage() {
         setResultadoMostrado(null);
         setTirandoDado(true);
         setMensaje("El dado está girando...");
+        // Marcamos que el turno de este jugador está en curso: el
+        // cambio de turno al rival se difiere hasta que se cierren
+        // todos los popups (ver useEffect más abajo).
+        setTurnoEnCurso(true);
+        setDadoTerminado(false);
+        cambioClubEnviadoRef.current = false;
         temporizadorTiradaRef.current = setTimeout(() => {
             setTirandoDado(false);
             temporizadorTiradaRef.current = null;
@@ -426,10 +544,22 @@ export default function PartidaPage() {
                         return;
                     }
 
-                    if (rendimientoActual) {
-                        setMostrarRendimiento(true);
-                    } else if (titulosGanados.length > 0) {
-                        setMostrarTitulos(true);
+                    // IMPORTANTE: acá NO se llama a emitirCierreTurnoSiListo()
+                    // directamente. Los setMostrarXxx(false) de arriba son
+                    // asincrónicos: el callback cerraría sobre el valor
+                    // VIEJO (popup todavía "abierto") y retornaría sin
+                    // emitir "turnoListo", dejando el turno colgado para
+                    // siempre. pedirCierreTurno() difiere la evaluación al
+                    // useEffect, que corre DESPUÉS del re-render con el
+                    // estado ya actualizado.
+                    if (!rendimientoActual && titulosGanados.length === 0) {
+                        pedirCierreTurno();
+                    } else {
+                        if (rendimientoActual) {
+                            setMostrarRendimiento(true);
+                        } else if (titulosGanados.length > 0) {
+                            setMostrarTitulos(true);
+                        }
                     }
                 }}
             />
@@ -439,10 +569,14 @@ export default function PartidaPage() {
                 onCerrar={() => {
                     setMostrarRendimiento(false);
 
-                    // Después del rendimiento de la temporada, si hubo
-                    // títulos ganados, se celebra con su propio popup.
+                    // Si hubo títulos ganados, se celebra con su propio
+                    // popup. Si no, se cierra el turno (ver nota en
+                    // PopupEvento: se usa pedirCierreTurno para que la
+                    // evaluación vea el estado ya actualizado).
                     if (titulosGanados.length > 0) {
                         setMostrarTitulos(true);
+                    } else {
+                        pedirCierreTurno();
                     }
                 }}
             />
@@ -454,11 +588,14 @@ export default function PartidaPage() {
 
                     // Si algún título quedó en disputa, después de cerrar la
                     // celebración se arranca el duelo (tatetí) contra el rival.
+                    // El turno se cierra cuando termina el duelo.
                     if (tituloDisputadoPendiente) {
                         socketRef.current?.emit("dueloJugar", {
                             idPartida: Number(idPartida),
                             idParticipante: tituloDisputadoPendiente.idParticipante
                         });
+                    } else {
+                        pedirCierreTurno();
                     }
                 }}
             />
@@ -479,10 +616,19 @@ export default function PartidaPage() {
                                 setJugadores(datos.jugadores);
                             }
                             setCambioClubPendiente(null);
+                            cambioClubEnviadoRef.current = true;
                             setMensaje("Te cambiaste de club. ¡Nueva etapa!");
+                            // Puede que aún queden otros popups
+                            // (evento / rendimiento / títulos) o que
+                            // el dado todavía esté animándose, por lo
+                            // que dejamos que el useEffect de cierre
+                            // lo detecte.
+                            pedirCierreTurno();
                         })
                         .catch(() => {
                             setCambioClubPendiente(null);
+                            cambioClubEnviadoRef.current = true;
+                            pedirCierreTurno();
                         });
                 }}
             />
@@ -495,6 +641,7 @@ export default function PartidaPage() {
                     onCerrar={() => {
                         setDueloActivo(null);
                         setTituloDisputadoPendiente(null);
+                        pedirCierreTurno();
                     }}
                 />
             ) : (
@@ -505,6 +652,7 @@ export default function PartidaPage() {
                     onCerrar={() => {
                         setDueloActivo(null);
                         setTituloDisputadoPendiente(null);
+                        pedirCierreTurno();
                     }}
                 />
             )}

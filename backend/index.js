@@ -1427,26 +1427,11 @@ io.on("connection", (socket) => {
             (j) => Number(j.id_usuario) !== idUsuario
           );
 
-          // Función interna para alternar el turno.
-          const cambiarTurno = async () => {
-            await query(
-              `UPDATE ParticipantePartida
-                         SET turno = 0
-                         WHERE id_partida = ?`,
-              [idPartida]
-            );
-
-            await query(
-              `UPDATE ParticipantePartida
-                         SET turno = 1
-                         WHERE id_partida = ?
-                           AND id_usuario = ?`,
-              [idPartida, Number(rival.id_usuario)]
-            );
-          };
-
           // Si el jugador tenía un turno pendiente por perder,
           // lo consume sin tirar el dado ni generar otro evento.
+          // NO se llama a cambiarTurno() acá: el turno pasa al rival
+          // recién cuando el front emite "turnoListo" (después de que
+          // termine la animación del dado y, si los hay, los popups).
           if (Number(jugador.turnos_pendientes_perdidos) > 0) {
             await query(
               `UPDATE ParticipantePartida
@@ -1456,8 +1441,6 @@ io.on("connection", (socket) => {
                            AND id_usuario = ?`,
               [idPartida, idUsuario]
             );
-
-            await cambiarTurno();
 
             const jugadoresActualizados = await obtenerJugadores(
               query,
@@ -2157,7 +2140,9 @@ io.on("connection", (socket) => {
             );
           }
 
-          await cambiarTurno();
+          // NOTA: el cambio de turno NO se hace acá. Se difiere hasta
+          // que el front emita "turnoListo" (cuando el jugador cerró
+          // todos los popups). Ver evento "turnoListo" más abajo.
 
           // Fin de la carrera: al llegar al casillero 20 (última
           // temporada) se cierra la partida, se define el ganador y se
@@ -2378,6 +2363,16 @@ io.on("connection", (socket) => {
         return;
       }
 
+      // Anotamos quién acaba de tirar para que, cuando emita
+      // "turnoListo", sea el único habilitado a pedir el cambio de
+      // turno. Si la partida ya terminó, no queda nadie esperando
+      // turno: limpiamos el registro.
+      if (resultadoTurno.partidaFinalizada || resultadoTurno.evento?.fin_partida) {
+        ultimoEnJugar.delete(idPartida);
+      } else {
+        ultimoEnJugar.set(idPartida, idUsuario);
+      }
+
       // El evento es privado: solo lo ve el jugador que tiró el dado.
       // Al resto de la sala les llega el estado con el evento oculto.
       // broadcast excluye al socket actual, así que recibe una sola vez.
@@ -2460,6 +2455,148 @@ io.on("connection", (socket) => {
 
       socket.emit("errorPartida", {
         mensaje: "No se pudo procesar el turno."
+      });
+    }
+  });
+
+
+  // --------------------------------------------------------------------------
+  // CIERRE DE TURNO (defiere el cambio de turno).
+  // --------------------------------------------------------------------------
+  // El turno pasa al rival recién cuando el jugador que acaba de tirar
+  // emite "turnoListo". Mientras tanto, el rival NO puede tirar: el
+  // botón sigue habilitado solo para quien tiene `turno = 1` y la BD
+  // todavía muestra al mismo jugador. Esto evita que el rival se
+  // adelante mientras el primero está mirando los popups de evento,
+  // rendimiento y títulos de su temporada.
+  socket.on("turnoListo", async (data) => {
+    try {
+      const usuario = socket.request.session?.usuario;
+      if (!usuario) {
+        socket.emit("errorPartida", { mensaje: "Tenés que iniciar sesión." });
+        return;
+      }
+
+      const idPartida = Number(data?.idPartida);
+      const idUsuario = Number(usuario.id_usuario);
+
+      if (
+        !Number.isInteger(idPartida) || idPartida <= 0 ||
+        !Number.isInteger(idUsuario) || idUsuario <= 0
+      ) {
+        socket.emit("errorPartida", { mensaje: "Datos inválidos." });
+        return;
+      }
+
+      // Solo el jugador que acaba de tirar puede confirmar el cierre
+      // de su propio turno. Si el rival lo manda, lo ignoramos.
+      if (ultimoEnJugar.get(idPartida) !== idUsuario) {
+        return;
+      }
+
+      // Buscamos al rival para pasarle el turno (es solo UPDATE).
+      const jugadores = await mysql.realizarQuery(
+        `SELECT id_participante, id_usuario
+           FROM ParticipantePartida
+          WHERE id_partida = ? AND id_usuario <> ?`,
+        [idPartida, idUsuario]
+      );
+
+      if (!jugadores || jugadores.length === 0) {
+        socket.emit("errorPartida", {
+          mensaje: "No se encontró al rival para pasar el turno."
+        });
+        return;
+      }
+
+      const idRival = Number(jugadores[0].id_usuario);
+
+      await mysql.realizarQuery(
+        `UPDATE ParticipantePartida
+            SET turno = 0
+          WHERE id_partida = ? AND id_usuario = ?`,
+        [idPartida, idUsuario]
+      );
+      await mysql.realizarQuery(
+        `UPDATE ParticipantePartida
+            SET turno = 1
+          WHERE id_partida = ? AND id_usuario = ?`,
+        [idPartida, idRival]
+      );
+
+      // Limpiamos el registro: ya nadie está "esperando confirmación".
+      ultimoEnJugar.delete(idPartida);
+
+      const jugadoresActualizados = await mysql.realizarQuery(
+        `SELECT
+            pp.id_participante,
+            pp.id_usuario,
+            pp.id_club,
+            pp.nombre_leyenda,
+            pp.posicion_actual,
+            pp.grl,
+            pp.edad,
+            pp.goles,
+            pp.asistencias,
+            pp.partidos_jugados,
+            pp.fama,
+            pp.plata,
+            pp.idolatria,
+            pp.puntos_campeon,
+            pp.lesionado,
+            pp.lesion_hasta_temporada,
+            pp.turnos_pendientes_perdidos,
+            pp.id_titulo,
+            pp.id_titulo_individual,
+            pp.id_titulo_internacional,
+            pp.id_seleccion,
+            pp.id_nacionalidad,
+            pp.turno,
+            pp.listo,
+            u.nombre_usuario,
+            c.nombre AS nombre_club,
+            c.liga,
+            c.jerarquia AS jerarquia_club,
+            sel.nombre AS nombre_seleccion,
+            nat.nombre AS nacionalidad,
+            t.nombre AS nombre_titulo,
+            t.imagen AS imagen_titulo,
+            t.prestigio AS prestigio_titulo,
+            ti.nombre AS nombre_titulo_individual,
+            ti.imagen AS imagen_titulo_individual,
+            ti.prestigio AS prestigio_titulo_individual,
+            tint.nombre AS nombre_titulo_internacional,
+            tint.imagen AS imagen_titulo_internacional,
+            tint.prestigio AS prestigio_titulo_internacional,
+            (SELECT COUNT(*) FROM TituloGanado tg
+              WHERE tg.id_participante = pp.id_participante) AS cantidad_titulos
+          FROM ParticipantePartida pp
+          INNER JOIN Usuario u
+            ON pp.id_usuario = u.id_usuario
+          LEFT JOIN Club c
+            ON pp.id_club = c.id_club
+          LEFT JOIN Seleccion sel
+            ON pp.id_seleccion = sel.id_seleccion
+          LEFT JOIN Seleccion nat
+            ON nat.id_seleccion = pp.id_nacionalidad
+          LEFT JOIN Titulo t
+            ON pp.id_titulo = t.id_titulo
+          LEFT JOIN TituloIndividual ti
+            ON pp.id_titulo_individual = ti.id_titulo_individual
+          LEFT JOIN TituloInternacional tint
+            ON pp.id_titulo_internacional = tint.id_titulo_internacional
+          WHERE pp.id_partida = ?`,
+        [idPartida]
+      );
+
+      io.to(`partida_${idPartida}`).emit("turnoActualizado", {
+        idPartida,
+        jugadores: jugadoresActualizados
+      });
+    } catch (error) {
+      console.error("Error al confirmar el cierre del turno:", error);
+      socket.emit("errorPartida", {
+        mensaje: "No se pudo cerrar el turno."
       });
     }
   });
@@ -2910,6 +3047,12 @@ io.on("connection", (socket) => {
 // Mapa de duelos activos a nivel de MÓDULO: compartido entre todas las
 // conexiones (el duelo es 1v1: dos sockets distintos deben ver el mismo estado).
 const duelosActivos = new Map(); // idDuelo -> estado del duelo
+
+// Quién tiró el dado por última vez en cada partida. Lo usamos para
+// diferir el cambio de turno: el front emite "turnoListo" cuando el
+// jugador terminó de ver los popups, y recién ahí se pasa el turno al
+// rival. Mientras esa confirmación no llega, el rival no puede tirar.
+const ultimoEnJugar = new Map(); // idPartida -> idUsuario
 
 // ============================================================================
 // FIN DE PARTIDA Y RANKING
